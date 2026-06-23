@@ -58,16 +58,22 @@ def buscar_chamados_recebemais(session_token):
         f"{GLPI_URL}/apirest.php/Ticket",
         headers={"App-Token": APP_TOKEN, "Session-Token": session_token},
         params={
-            "searchText[name]": PALAVRA_CHAVE,
             "searchText[status]": 1,
             "expand_dropdowns": True,
-            "range": "0-49",
+            "range": "0-99",
             "order": "DESC",
             "sort": "date_creation",
         },
     )
     data = r.json()
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    return [
+        c for c in data
+        if "recebe" in str(c.get("entities_id", "")).lower()
+        or "recebemais" in str(c.get("name", "")).lower()
+        or "recebemais" in str(c.get("itilcategories_id", "")).lower()
+    ]
 
 
 def postar_primeiro_atendimento(session_token, chamado_id):
