@@ -6,8 +6,10 @@ Serve o HTML e um endpoint /api/stats com dados do GLPI (cache 5 min).
 import os
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template
+
+BRASILIA = timezone(timedelta(hours=-3))
 
 app = Flask(__name__)
 
@@ -97,7 +99,7 @@ def calcular():
             "order": "DESC",
         })
 
-        agora         = datetime.utcnow()
+        agora         = datetime.now(BRASILIA)
         hoje_str      = agora.strftime("%Y-%m-%d")
         seg           = agora - timedelta(days=agora.weekday())
         inicio_semana = seg.strftime("%Y-%m-%d 00:00:00")
@@ -156,7 +158,7 @@ def calcular():
             "sem_total":        sem_total,
             "sem_resol":        sem_resol,
             "taxa_semana":      round(sem_resol / sem_total * 100) if sem_total else 0,
-            "atualizado":       agora.strftime("%d/%m/%Y %H:%M") + " UTC",
+            "atualizado":       agora.strftime("%d/%m/%Y %H:%M") + " BRT",
         }
     finally:
         close_session(tok)
