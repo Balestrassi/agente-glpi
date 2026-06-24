@@ -18,7 +18,7 @@ GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
 APP_TOKEN  = os.environ.get("GLPI_APP_TOKEN",  "wXhcZYF5NcwtQWxLwWHlYC2UUlmCOMTxrJ0Q8Ryl")
 USER_TOKEN = os.environ.get("GLPI_USER_TOKEN", "J2wAo6d8GXQ0WAVxeUXsmOJwBfMVty8qtXA8HNpj")
 
-JANELA_MINUTOS  = 10    # buscar chamados criados nos últimos N minutos
+JANELA_MINUTOS  = 120   # janela ampla (2h) para cobrir delays do GitHub Actions
 MAX_SIMILARES   = 3     # quantos chamados similares mostrar
 CHARS_SOLUCAO   = 350   # tamanho máximo do texto de solução por chamado
 
@@ -194,12 +194,14 @@ def ja_tem_sugestao_ia(tok, chamado_id: int) -> bool:
 
 # ── Lógica principal ──────────────────────────────────────────────────
 def buscar_chamados_novos(tok) -> list:
-    """Retorna chamados com status Novo criados na janela de tempo."""
+    """Retorna chamados com status Novo criados na janela de tempo.
+    Janela ampla (2h) para cobrir delays do GitHub Actions (cron pode atrasar até 30 min).
+    Deduplicação feita pelo processados.json — sem risco de sugestão duplicada."""
     limite = (datetime.now() - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         tickets = api_get("Ticket", tok, {
             "expand_dropdowns": True,
-            "range": "0-49",
+            "range": "0-99",
             "sort": "date_creation",
             "order": "DESC",
             "searchText[status]": 1,
