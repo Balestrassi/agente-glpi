@@ -1,0 +1,46 @@
+name: Agente SLA GLPI
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # a cada 30 minutos (suficiente para alertas de 24h)
+  workflow_dispatch:
+
+jobs:
+  verificar-sla:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Restaurar alertados
+        uses: actions/cache@v4
+        with:
+          path: sla_alertados.json
+          key: sla-alertados-${{ github.run_id }}
+          restore-keys: |
+            sla-alertados-
+
+      - name: Executar agente SLA
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python agente_sla.py
+
+      - name: Salvar alertados
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: sla_alertados.json
+          key: sla-alertados-${{ github.run_id }}
