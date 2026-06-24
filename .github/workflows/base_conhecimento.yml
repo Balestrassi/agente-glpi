@@ -1,0 +1,44 @@
+name: Agente Base de Conhecimento GLPI
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sugestao-automatica:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Restaurar processados
+        uses: actions/cache@v4
+        with:
+          path: base_conhecimento_processados.json
+          key: base-conhecimento-${{ github.run_id }}
+          restore-keys: |
+            base-conhecimento-
+
+      - name: Executar agente
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+        run: python agente_base_conhecimento.py
+
+      - name: Salvar processados
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: base_conhecimento_processados.json
+          key: base-conhecimento-${{ github.run_id }}
