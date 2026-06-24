@@ -151,6 +151,10 @@ def main():
 
             ids_abertos_agora.add(str(tid))
 
+            # Só monitora chamados RecebeMais
+            if "recebemai" not in nome.lower():
+                continue
+
             # Só verifica tickets com mais de HORAS_SLA horas
             if criacao >= limite_criacao:
                 continue
