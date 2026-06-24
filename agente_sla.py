@@ -96,11 +96,23 @@ def horas_desde(dt_str):
     except Exception:
         return 0
 
+def eh_recebemai(ticket):
+    """Verifica se o chamado pertence ao produto Recebe Mais pela entidade ou categoria."""
+    entidade  = (ticket.get("entities_id")       or "").lower()
+    categoria = (ticket.get("itilcategories_id") or "").lower()
+    return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
+
+def get_requester_id_numerico(tok, tid):
+    """Busca o ID numérico do solicitante (sem expand_dropdowns)."""
+    t = api_get(f"Ticket/{tid}", tok)
+    return t.get("users_id_recipient") if isinstance(t, dict) else None
+
 def buscar_abertos(tok):
+    """Busca chamados abertos com campos expandidos para filtragem por entidade/categoria."""
     tickets = []
     for status in (1, 2, 4):
         resultado = api_get("Ticket", tok, {
-            "expand_dropdowns": False,
+            "expand_dropdowns": True,
             "range": "0-199",
             "sort": "date_creation",
             "order": "ASC",
@@ -147,12 +159,11 @@ def main():
             nome    = t.get("name", "")
             status  = t.get("status")
             criacao = t.get("date_creation") or t.get("date", "")
-            req_id  = t.get("users_id_recipient")
 
             ids_abertos_agora.add(str(tid))
 
-            # Só monitora chamados RecebeMais
-            if "recebemai" not in nome.lower():
+            # Só monitora chamados Recebe Mais (por entidade ou categoria)
+            if not eh_recebemai(t):
                 continue
 
             # Só verifica tickets com mais de HORAS_SLA horas
@@ -160,6 +171,9 @@ def main():
                 continue
 
             horas_aberto = horas_desde(criacao)
+
+            # Busca ID numérico do solicitante para comparar com followups
+            req_id = get_requester_id_numerico(tok, tid)
 
             # Verifica último comentário do técnico
             ult_tec = ultimo_comentario_tecnico(tok, tid, req_id)
