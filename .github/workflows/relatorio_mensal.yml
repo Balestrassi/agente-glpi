@@ -1,0 +1,31 @@
+name: Relatório Mensal Recebe Mais
+
+on:
+  schedule:
+    - cron: '0 12 1 * *'   # Dia 1 de cada mês às 09h BRT (12h UTC)
+  workflow_dispatch:
+
+jobs:
+  relatorio-mensal:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests reportlab
+
+      - name: Gerar e enviar relatório mensal
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python relatorio_mensal.py
