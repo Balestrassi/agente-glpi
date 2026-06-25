@@ -55,15 +55,22 @@ def api_get(path, tok, params=None):
     return []
 
 
-def produto(titulo):
-    tl = titulo.lower()
-    if "messianica" in tl or "messiânica" in tl:
-        return "Messiânica"
-    if "manserv" in tl:
-        return "Manserv"
-    if "recebemai" in tl:
-        return "RecebeMais"
-    return "Outros"
+def eh_recebemai(ticket):
+    entidade  = (ticket.get("entities_id")       or "").lower()
+    categoria = (ticket.get("itilcategories_id") or "").lower()
+    return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
+
+
+def produto(ticket):
+    """Extrai o nome do cliente a partir do caminho da entidade."""
+    entidade = (ticket.get("entities_id") or "").strip()
+    if not entidade:
+        return "Sem entidade"
+    partes = [p.strip() for p in entidade.split(">")]
+    cliente = partes[-1]
+    if cliente.lower() == "recebe mais":
+        return "Recebe Mais (Geral)"
+    return cliente
 
 
 def tipo(titulo):
@@ -84,7 +91,8 @@ def tipo(titulo):
 def dias_aberto(criacao_str):
     try:
         dt = datetime.strptime(criacao_str[:19], "%Y-%m-%d %H:%M:%S")
-        return (datetime.utcnow() - dt).days
+        # GLPI retorna datas em BRT — comparar contra BRT
+        return (datetime.now(BRASILIA).replace(tzinfo=None) - dt).days
     except Exception:
         return 0
 
@@ -114,13 +122,16 @@ def calcular():
         sem_resol       = 0
 
         for t in tickets:
+            if not eh_recebemai(t):
+                continue
+
             nome     = t.get("name", "")
             status   = t.get("status")
             criacao  = t.get("date_creation") or t.get("date", "")
             data_mod = t.get("date_mod", "")
             tid      = t.get("id")
 
-            prod = produto(nome)
+            prod = produto(t)
             tp   = tipo(nome)
 
             if criacao >= inicio_semana:
