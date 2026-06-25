@@ -1,0 +1,31 @@
+name: Resumo Diário GLPI
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'   # 8h BRT (UTC-3) = 11h UTC, seg-sex
+  workflow_dispatch:
+
+jobs:
+  resumo:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Enviar resumo diário
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python resumo_diario.py

@@ -1,13 +1,16 @@
 """
 Agente de Alerta SLA — GLPI
-Verifica chamados abertos sem resposta do técnico há mais de 24h
-e envia alerta no grupo Telegram.
+Verifica chamados Recebe Mais sem resposta do técnico e envia alertas
+escalonados no grupo Telegram:
+  • Nível 1 — ⚠️  +24h sem resposta  (alerta único)
+  • Nível 2 — 🚨  +48h sem resposta  (alerta único ao escalar)
+  • Nível 3 — 🔴  +72h sem resposta  (re-alerta a cada 24h)
 """
 
 import os
 import json
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 GLPI_URL         = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
@@ -16,16 +19,30 @@ USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 
-HORAS_SLA      = 24   # horas sem resposta para alertar
-HORAS_RENOTIF  = 24   # re-alertar a cada X horas se ainda sem resposta
+BRASILIA       = timezone(timedelta(hours=-3))
 ALERTADOS_FILE = Path("sla_alertados.json")
 
-STATUS_NOME = {1: "Novo", 2: "Em andamento", 4: "Pendente"}
+NIVEL_HORAS  = {1: 24, 2: 48, 3: 72}
+STATUS_NOME  = {1: "Novo", 2: "Em andamento", 4: "Pendente"}
+NIVEL_EMOJI  = {1: "⚠️",  2: "🚨",  3: "🔴"}
+NIVEL_LABEL  = {
+    1: "Sem resposta há \\+24h",
+    2: "URGENTE — Sem resposta há \\+48h",
+    3: "CRÍTICO — Sem resposta há \\+72h",
+}
 
 # ── Persistência ──────────────────────────────────────────────────────
 def carregar_alertados():
     if ALERTADOS_FILE.exists():
-        return json.loads(ALERTADOS_FILE.read_text(encoding="utf-8"))
+        dados = json.loads(ALERTADOS_FILE.read_text(encoding="utf-8"))
+        # Migra formato antigo {tid: str} para {tid: {ts, nivel}}
+        migrado = {}
+        for tid, v in dados.items():
+            if isinstance(v, str):
+                migrado[tid] = {"ts": v, "nivel": 1}
+            else:
+                migrado[tid] = v
+        return migrado
     return {}
 
 def salvar_alertados(dados: dict):
@@ -55,9 +72,7 @@ def close_session(tok):
 def api_get(path, tok, params=None):
     r = requests.get(
         f"{GLPI_URL}/apirest.php/{path}",
-        headers=_h(tok),
-        params=params,
-        timeout=30,
+        headers=_h(tok), params=params, timeout=30,
     )
     if r.status_code in (200, 206):
         d = r.json()
@@ -66,14 +81,9 @@ def api_get(path, tok, params=None):
 
 # ── Lógica de SLA ─────────────────────────────────────────────────────
 def ultimo_comentario_tecnico(tok, tid, requester_id):
-    """
-    Retorna o datetime do último followup feito pelo técnico (não solicitante, não bot).
-    Retorna None se não houver nenhum.
-    """
     followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
     if not isinstance(followups, list) or not followups:
         return None
-
     tecnicos = [
         f for f in followups
         if f.get("users_id") != requester_id
@@ -82,33 +92,54 @@ def ultimo_comentario_tecnico(tok, tid, requester_id):
     ]
     if not tecnicos:
         return None
-
     ult = tecnicos[-1].get("date") or tecnicos[-1].get("date_creation")
     try:
         return datetime.strptime(ult[:19], "%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
 
-def horas_desde(dt_str):
+def horas_desde_brt(dt_str):
+    """Calcula horas desde dt_str (data BRT do GLPI) até agora BRT."""
     try:
         dt = datetime.strptime(dt_str[:19], "%Y-%m-%d %H:%M:%S")
-        return (datetime.utcnow() - dt).total_seconds() / 3600
+        return (datetime.now(BRASILIA).replace(tzinfo=None) - dt).total_seconds() / 3600
     except Exception:
         return 0
 
+def nivel_escalada(horas):
+    if horas >= NIVEL_HORAS[3]: return 3
+    if horas >= NIVEL_HORAS[2]: return 2
+    if horas >= NIVEL_HORAS[1]: return 1
+    return 0
+
+def deve_alertar(tid_str, nivel_atual, alertados, agora_utc):
+    """
+    Alerta se:
+    - Nunca alertado antes
+    - Nível aumentou (escalada imediata)
+    - Nível 3 e já passaram 24h desde o último alerta (re-alerta crítico)
+    """
+    if tid_str not in alertados:
+        return True
+    reg = alertados[tid_str]
+    nivel_anterior = reg.get("nivel", 0)
+    if nivel_atual > nivel_anterior:
+        return True
+    if nivel_atual == 3:
+        ultimo = datetime.fromisoformat(reg["ts"])
+        return (agora_utc - ultimo).total_seconds() / 3600 >= 24
+    return False
+
 def eh_recebemai(ticket):
-    """Verifica se o chamado pertence ao produto Recebe Mais pela entidade ou categoria."""
     entidade  = (ticket.get("entities_id")       or "").lower()
     categoria = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
 
 def get_requester_id_numerico(tok, tid):
-    """Busca o ID numérico do solicitante (sem expand_dropdowns)."""
     t = api_get(f"Ticket/{tid}", tok)
     return t.get("users_id_recipient") if isinstance(t, dict) else None
 
 def buscar_abertos(tok):
-    """Busca chamados abertos com campos expandidos para filtragem por entidade/categoria."""
     tickets = []
     for status in (1, 2, 4):
         resultado = api_get("Ticket", tok, {
@@ -127,119 +158,104 @@ def enviar_telegram(texto):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("  [!] Telegram não configurado.")
         return
-    r = requests.post(
+    requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": texto,
-            "parse_mode": "Markdown",
-        },
+        json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "Markdown",
+              "disable_web_page_preview": True},
         timeout=15,
-    )
-    r.raise_for_status()
+    ).raise_for_status()
 
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
-    agora = datetime.utcnow()
-    print(f"[{agora.strftime('%H:%M:%S')}] Agente SLA iniciado")
+    agora_brt = datetime.now(BRASILIA).replace(tzinfo=None)
+    agora_utc = datetime.utcnow()
+    print(f"[{agora_brt.strftime('%H:%M')} BRT] Agente SLA iniciado")
 
     alertados = carregar_alertados()
-    limite_criacao = (agora - timedelta(hours=HORAS_SLA)).strftime("%Y-%m-%d %H:%M:%S")
 
     tok = get_session()
     try:
         tickets_abertos = buscar_abertos(tok)
         print(f"  Chamados abertos encontrados: {len(tickets_abertos)}")
 
-        precisam_alerta = []
-        ids_abertos_agora = set()
+        por_nivel      = {1: [], 2: [], 3: []}
+        ids_abertos    = set()
 
         for t in tickets_abertos:
-            tid     = t.get("id")
-            nome    = t.get("name", "")
-            status  = t.get("status")
+            tid    = t.get("id")
+            nome   = t.get("name", "")
+            status = t.get("status")
             criacao = t.get("date_creation") or t.get("date", "")
 
-            ids_abertos_agora.add(str(tid))
+            ids_abertos.add(str(tid))
 
-            # Só monitora chamados Recebe Mais (por entidade ou categoria)
             if not eh_recebemai(t):
                 continue
 
-            # Só verifica tickets com mais de HORAS_SLA horas
-            if criacao >= limite_criacao:
+            horas_aberto = horas_desde_brt(criacao)
+            if horas_aberto < NIVEL_HORAS[1]:
                 continue
 
-            horas_aberto = horas_desde(criacao)
-
-            # Busca ID numérico do solicitante para comparar com followups
-            req_id = get_requester_id_numerico(tok, tid)
-
-            # Verifica último comentário do técnico
+            req_id  = get_requester_id_numerico(tok, tid)
             ult_tec = ultimo_comentario_tecnico(tok, tid, req_id)
 
-            sem_resposta = False
-            if ult_tec is None:
-                # Nunca teve resposta do técnico
-                sem_resposta = True
+            if ult_tec is not None:
+                horas_sem = (agora_brt - ult_tec).total_seconds() / 3600
+                if horas_sem < NIVEL_HORAS[1]:
+                    alertados.pop(str(tid), None)
+                    continue
+                horas_ref = horas_sem
             else:
-                horas_sem = (agora - ult_tec).total_seconds() / 3600
-                if horas_sem >= HORAS_SLA:
-                    sem_resposta = True
+                horas_ref = horas_aberto
 
-            if not sem_resposta:
-                # Tem resposta recente — remove do dict de alertados se estava lá
-                alertados.pop(str(tid), None)
+            nivel = nivel_escalada(horas_ref)
+            if nivel == 0 or not deve_alertar(str(tid), nivel, alertados, agora_utc):
                 continue
 
-            # Verifica se já alertamos recentemente
-            ultimo_alerta = alertados.get(str(tid))
-            if ultimo_alerta:
-                horas_desde_alerta = (agora - datetime.fromisoformat(ultimo_alerta)).total_seconds() / 3600
-                if horas_desde_alerta < HORAS_RENOTIF:
-                    continue  # já alertamos nas últimas 24h
+            dias  = int(horas_ref // 24)
+            horas = int(horas_ref % 24)
+            tempo_str = f"{dias}d {horas}h" if dias > 0 else f"{int(horas_ref)}h"
 
-            # Precisa alertar
-            dias = int(horas_aberto // 24)
-            horas_rest = int(horas_aberto % 24)
-            tempo_str = f"{dias}d {horas_rest}h" if dias > 0 else f"{int(horas_aberto)}h"
-
-            precisam_alerta.append({
+            por_nivel[nivel].append({
                 "id":     tid,
                 "nome":   nome,
                 "status": STATUS_NOME.get(status, str(status)),
                 "tempo":  tempo_str,
             })
-            alertados[str(tid)] = agora.isoformat()
+            alertados[str(tid)] = {"ts": agora_utc.isoformat(), "nivel": nivel}
 
-        # Remove do dict tickets que já foram resolvidos/fechados
+        # Remove tickets resolvidos/fechados do controle
         for tid_str in list(alertados.keys()):
-            if tid_str not in ids_abertos_agora:
+            if tid_str not in ids_abertos:
                 alertados.pop(tid_str, None)
 
         salvar_alertados(alertados)
 
-        if not precisam_alerta:
-            print("  Nenhum chamado sem resposta há +24h.")
+        total = sum(len(v) for v in por_nivel.values())
+        if total == 0:
+            print("  Nenhum chamado requer alerta.")
             return
 
-        # Monta mensagem Telegram
-        linhas = [f"⚠️ *{len(precisam_alerta)} chamado(s) sem resposta há +{HORAS_SLA}h*\n"]
-        for c in precisam_alerta:
-            linhas.append(f"• *#{c['id']}* — {c['nome']}")
-            linhas.append(f"  _{c['status']} · aberto há {c['tempo']}_")
-        linhas.append(f"\n_Verificado em {agora.strftime('%d/%m/%Y %H:%M')} UTC_")
+        # Envia do nível mais grave para o menos grave
+        for nivel in (3, 2, 1):
+            chamados = por_nivel[nivel]
+            if not chamados:
+                continue
 
-        msg = "\n".join(linhas)
-        enviar_telegram(msg)
-        print(f"  Alerta enviado: {len(precisam_alerta)} chamado(s)")
-        for c in precisam_alerta:
-            print(f"    #{c['id']} — {c['nome']} ({c['tempo']})")
+            linhas = [f"{NIVEL_EMOJI[nivel]} *{len(chamados)} chamado(s) — {NIVEL_LABEL[nivel]}*\n"]
+            for c in chamados:
+                link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
+                linhas.append(f"• [\\#{c['id']}]({link}) — {c['nome']}")
+                linhas.append(f"  _{c['status']} · sem resposta há {c['tempo']}_")
+
+            linhas.append(f"\n_Verificado em {agora_brt.strftime('%d/%m/%Y %H:%M')} BRT_")
+            enviar_telegram("\n".join(linhas))
+            print(f"  Nível {nivel} ({NIVEL_EMOJI[nivel]}): {len(chamados)} chamado(s)")
 
     finally:
         close_session(tok)
 
-    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Concluído\n")
+    print(f"[{datetime.now(BRASILIA).replace(tzinfo=None).strftime('%H:%M')}] Concluído\n")
 
 if __name__ == "__main__":
     main()
