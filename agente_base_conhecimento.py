@@ -223,8 +223,14 @@ def buscar_chamados_novos(tok) -> list:
         print(f"  [!] Erro ao buscar chamados novos: {e}")
         return []
 
+def _eh_recebemai_entidade(entidade_str: str) -> bool:
+    """Verifica se a entidade (string expandida) pertence ao universo Recebe Mais."""
+    return "recebe mais" in (entidade_str or "").lower()
+
 def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, entity: str = None) -> list:
-    """Busca chamados similares por título E descrição, filtrando pela mesma entidade (cliente)."""
+    """Busca chamados similares por título E descrição.
+    Aceita qualquer cliente Recebe Mais (não exige entidade idêntica),
+    mas dá bônus de score para o mesmo cliente."""
     kw_titulo = extrair_keywords(titulo)
     kw_desc   = kw_descricao or []
 
@@ -239,14 +245,19 @@ def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, ent
             return
         if (t.get("date_creation") or "") < limite_data:
             return
-        # Filtrar pela mesma entidade (mesmo cliente)
-        if entity and t.get("entities_id") != entity:
+        # Aceita qualquer entidade Recebe Mais (não exige match exato)
+        entidade_similar = t.get("entities_id") or ""
+        if not _eh_recebemai_entidade(entidade_similar):
             return
+        # Bônus: mesmo cliente tem peso maior
+        score_final = score
+        if entity and entidade_similar == entity:
+            score_final += 1
         tid = t["id"]
         if tid in encontrados:
-            encontrados[tid]["_score"] += score
+            encontrados[tid]["_score"] += score_final
         else:
-            t["_score"] = score
+            t["_score"] = score_final
             encontrados[tid] = t
 
     # Busca por título (peso 2)
@@ -377,8 +388,9 @@ def main():
 
             similares = buscar_similares_resolvidos(tok, titulo, kw_desc, entity=entity)
             if not similares:
-                print(f"    Nenhum similar encontrado, marcando como processado")
-                processados.add(tid)
+                print(f"    Nenhum similar encontrado — será tentado novamente na próxima execução")
+                # Não marca como processado: tenta de novo na próxima rodada.
+                # Evita marcar permanentemente quando a busca retorna vazia por falta de histórico.
                 continue
 
             # Busca a solução de cada similar
@@ -390,7 +402,7 @@ def main():
 
             html_sugestao = formatar_sugestao_html(similares)
             postar_sugestao_privada(tok, tid, html_sugestao)
-            print(f"    Sugestão privada postada no chamado #{tid}")
+            print(f"    ✓ Sugestão privada postada no chamado #{tid}")
 
             processados.add(tid)
 

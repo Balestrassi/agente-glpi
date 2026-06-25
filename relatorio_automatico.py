@@ -26,18 +26,28 @@ USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 
-# ── Período: semana anterior seg-dom ─────────────────────────────────
-hoje         = datetime.utcnow()
-seg_desta    = hoje - timedelta(days=hoje.weekday())
-seg_anterior = seg_desta - timedelta(days=7)
-dom_anterior = seg_desta - timedelta(days=1)
+# ── Períodos ──────────────────────────────────────────────────────────
+hoje          = datetime.utcnow()
+seg_desta     = hoje - timedelta(days=hoje.weekday())
 
-DATA_INI = seg_anterior.strftime("%Y-%m-%d 00:00:00")
-DATA_FIM = dom_anterior.strftime("%Y-%m-%d 23:59:59")
-PERIODO  = f"{seg_anterior.strftime('%d/%m/%Y')} a {dom_anterior.strftime('%d/%m/%Y')}"
+# Semana anterior (objeto do relatório)
+seg_anterior  = seg_desta  - timedelta(days=7)
+dom_anterior  = seg_desta  - timedelta(days=1)
+
+# Semana retrasada (para comparativo)
+seg_penultima = seg_anterior - timedelta(days=7)
+dom_penultima = seg_anterior - timedelta(days=1)
+
+DATA_INI      = seg_anterior.strftime("%Y-%m-%d 00:00:00")
+DATA_FIM      = dom_anterior.strftime("%Y-%m-%d 23:59:59")
+DATA_INI_ANT  = seg_penultima.strftime("%Y-%m-%d 00:00:00")
+DATA_FIM_ANT  = dom_penultima.strftime("%Y-%m-%d 23:59:59")
+
+PERIODO       = f"{seg_anterior.strftime('%d/%m/%Y')} a {dom_anterior.strftime('%d/%m/%Y')}"
+PERIODO_ANT   = f"{seg_penultima.strftime('%d/%m')} a {dom_penultima.strftime('%d/%m/%Y')}"
 PERIODO_LABEL = f"{seg_anterior.strftime('%d/%m')}–{dom_anterior.strftime('%d/%m/%Y')}"
-OUTPUT   = f"Relatorio_RecebeMais_{seg_anterior.strftime('%d_%m')}_{dom_anterior.strftime('%d_%m_%Y')}.pdf"
-HOJE_STR = datetime.utcnow().strftime("%d/%m/%Y %H:%M")
+OUTPUT        = f"Relatorio_RecebeMais_{seg_anterior.strftime('%d_%m')}_{dom_anterior.strftime('%d_%m_%Y')}.pdf"
+HOJE_STR      = datetime.utcnow().strftime("%d/%m/%Y %H:%M")
 
 # ── Cores ─────────────────────────────────────────────────────────────
 AZUL_ESC  = colors.HexColor("#1A3A5C")
@@ -84,103 +94,19 @@ def api_get(path, tok, params=None):
         return r.json()
     return []
 
-# ── Filtro Recebe Mais (por entidade ou categoria) ────────────────────
+# ── Filtro e classificação Recebe Mais ────────────────────────────────
 def eh_recebemai(ticket):
     entidade  = (ticket.get("entities_id")       or "").lower()
     categoria = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
 
-# ── Busca de tickets ──────────────────────────────────────────────────
-def buscar_tickets_periodo(tok):
-    """Busca todos os tickets Recebe Mais criados na semana anterior."""
-    tickets = []
-    offset  = 0
-    total_bruto = 0
-    while True:
-        r = requests.get(
-            f"{GLPI_URL}/apirest.php/Ticket",
-            headers=_headers(tok),
-            params={
-                "expand_dropdowns": True,
-                "range": f"{offset}-{offset+99}",
-                "sort": "date_creation",
-                "order": "DESC",
-            },
-            timeout=30,
-        )
-        if r.status_code not in (200, 206):
-            break
-        data = r.json()
-        if not isinstance(data, list) or not data:
-            break
-
-        passou_inicio = False
-        for t in data:
-            dc = t.get("date_creation") or t.get("date", "")
-            if dc > DATA_FIM:
-                continue
-            if dc < DATA_INI:
-                passou_inicio = True
-                break
-            total_bruto += 1
-            if eh_recebemai(t):
-                tickets.append(t)
-
-        if passou_inicio:
-            break
-
-        content_range = r.headers.get("Content-Range", "")
-        if content_range:
-            total = int(content_range.split("/")[-1])
-            if offset + 100 >= total:
-                break
-        else:
-            break
-
-        offset += 100
-
-    print(f"  Tickets no período (total): {total_bruto}")
-    print(f"  Tickets Recebe Mais filtrados: {len(tickets)}")
-    return tickets
-
-def ultimo_tecnico(tok, tid, requester_id):
-    try:
-        followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
-        if not isinstance(followups, list):
-            return None
-        tecnico = [
-            f for f in followups
-            if f.get("users_id") != requester_id
-            and "Base de Conhecimento" not in (f.get("content") or "")
-            and "Obrigado pelo seu contato" not in (f.get("content") or "")
-        ]
-        if not tecnico:
-            return None
-        return tecnico[-1].get("date") or tecnico[-1].get("date_creation")
-    except Exception:
-        return None
-
-def requester_numeric_id(tok, tid):
-    try:
-        t = api_get(f"Ticket/{tid}", tok)
-        return t.get("users_id_recipient")
-    except Exception:
-        return None
-
-# ── Classificação por entidade — extrai o cliente folha do caminho ────
 def produto(ticket):
-    """Extrai o nome do cliente a partir do caminho da entidade.
-    Ex: 'Luzcon > Recebe Mais > Tegma' → 'Tegma'
-        'Luzcon > Recebe Mais' → 'Recebe Mais (Geral)'
-    """
     entidade = (ticket.get("entities_id") or "").strip()
     if not entidade:
         return "Sem entidade"
-    partes = [p.strip() for p in entidade.split(">")]
+    partes  = [p.strip() for p in entidade.split(">")]
     cliente = partes[-1]
-    if cliente.lower() == "recebe mais":
-        return "Recebe Mais (Geral)"
-    return cliente
+    return "Recebe Mais (Geral)" if cliente.lower() == "recebe mais" else cliente
 
 def tipo(titulo):
     tl = titulo.lower()
@@ -191,15 +117,100 @@ def tipo(titulo):
     if "melhoria" in tl:                          return "Solicitação de Melhoria"
     return "Outros"
 
-# ── Métricas ──────────────────────────────────────────────────────────
+# ── Busca de tickets ──────────────────────────────────────────────────
+def buscar_tickets_range(tok, data_ini, data_fim):
+    tickets = []
+    offset  = 0
+    while True:
+        r = requests.get(
+            f"{GLPI_URL}/apirest.php/Ticket",
+            headers=_headers(tok),
+            params={"expand_dropdowns": True, "range": f"{offset}-{offset+99}",
+                    "sort": "date_creation", "order": "DESC"},
+            timeout=30,
+        )
+        if r.status_code not in (200, 206):
+            break
+        data = r.json()
+        if not isinstance(data, list) or not data:
+            break
+        passou_inicio = False
+        for t in data:
+            dc = t.get("date_creation") or t.get("date", "")
+            if dc > data_fim:   continue
+            if dc < data_ini:   passou_inicio = True; break
+            if eh_recebemai(t): tickets.append(t)
+        if passou_inicio:
+            break
+        cr = r.headers.get("Content-Range", "")
+        if cr:
+            if offset + 100 >= int(cr.split("/")[-1]): break
+        else:
+            break
+        offset += 100
+    return tickets
+
+def buscar_tickets_periodo(tok):
+    tickets = buscar_tickets_range(tok, DATA_INI, DATA_FIM)
+    print(f"  Tickets Recebe Mais na semana: {len(tickets)}")
+    return tickets
+
+# ── Followups e técnicos ──────────────────────────────────────────────
+def requester_numeric_id(tok, tid):
+    try:
+        t = api_get(f"Ticket/{tid}", tok)
+        return t.get("users_id_recipient")
+    except Exception:
+        return None
+
+def ultimo_tecnico_completo(tok, tid, requester_id):
+    """Retorna (date_str, user_id) do último followup feito pelo técnico."""
+    try:
+        followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
+        if not isinstance(followups, list):
+            return None, None
+        tecnico = [
+            f for f in followups
+            if f.get("users_id") != requester_id
+            and "Base de Conhecimento" not in (f.get("content") or "")
+            and "Obrigado pelo seu contato" not in (f.get("content") or "")
+        ]
+        if not tecnico:
+            return None, None
+        ult = tecnico[-1]
+        return ult.get("date") or ult.get("date_creation"), ult.get("users_id")
+    except Exception:
+        return None, None
+
+_nomes_cache = {}
+def buscar_nome_usuario(tok, user_id):
+    if not user_id:
+        return "Desconhecido"
+    if user_id in _nomes_cache:
+        return _nomes_cache[user_id]
+    try:
+        u = api_get(f"User/{user_id}", tok)
+        if isinstance(u, dict):
+            nome = f"{u.get('firstname', '')} {u.get('realname', '')}".strip()
+            _nomes_cache[user_id] = nome or f"Usuário {user_id}"
+        else:
+            _nomes_cache[user_id] = f"Usuário {user_id}"
+    except Exception:
+        _nomes_cache[user_id] = f"Usuário {user_id}"
+    return _nomes_cache[user_id]
+
+# ── Métricas de tempo ─────────────────────────────────────────────────
 FMT   = "%Y-%m-%d %H:%M:%S"
 H_INI = 8
 H_FIM = 18
 H_DIA = H_FIM - H_INI
 
 def horas_uteis(ini_str, fim_str):
-    inicio = datetime.strptime(ini_str, FMT)
-    fim    = datetime.strptime(fim_str,  FMT)
+    try:
+        inicio = datetime.strptime(ini_str, FMT)
+        fim    = datetime.strptime(fim_str,  FMT)
+    except Exception:
+        return 0.0
     if fim <= inicio:
         return 0.0
     total = 0.0
@@ -227,10 +238,21 @@ def fmt_hu(h):
     if dias < 1.05: return f"{h:.1f} h úteis"
     return f"{dias:.1f} dias úteis"
 
-# ── Helpers visuais ───────────────────────────────────────────────────
-def hr():
-    return HRFlowable(width="100%", thickness=0.5, color=CINZA_BRD, spaceAfter=5, spaceBefore=5)
+def delta_str(atual, anterior):
+    """Retorna string de variação ex: '+12%' ou '-5%'."""
+    if anterior == 0:
+        return "—"
+    pct = round((atual - anterior) / anterior * 100)
+    sinal = "+" if pct >= 0 else ""
+    return f"{sinal}{pct}%"
 
+def delta_pp(atual, anterior):
+    """Variação em pontos percentuais."""
+    diff = round(atual - anterior)
+    sinal = "+" if diff >= 0 else ""
+    return f"{sinal}{diff} pp"
+
+# ── Helpers visuais ───────────────────────────────────────────────────
 def section(text):
     return [Spacer(1, 6), Paragraph(text, SECAO),
             HRFlowable(width="100%", thickness=1.5, color=AZUL_MED, spaceAfter=8)]
@@ -327,7 +349,9 @@ def capa(story, total, taxa):
     ))
     story.append(PageBreak())
 
-def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d, nao_resolvidos):
+
+def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d,
+                nao_resolvidos, comp):
     story += section("Visão Geral da Semana")
 
     kpi_data = [
@@ -349,7 +373,41 @@ def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d, nao
         ("LINEAFTER",(0,0),(-3,-1),0.5,CINZA_BRD),
     ]))
     story.append(kpi)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.4*cm))
+
+    # Comparativo com semana anterior
+    if comp:
+        def cor_delta(v):
+            if "+" in v: return "#27AE60"
+            if "-" in v: return "#E74C3C"
+            return "#7F8C8D"
+
+        d_total = delta_str(total, comp["total"])
+        d_taxa  = delta_pp(taxa, comp["taxa"])
+        nota_comp = ParagraphStyle("nc", fontName="Helvetica", fontSize=8,
+                                   textColor=colors.HexColor("#7F8C8D"),
+                                   alignment=TA_CENTER, leading=12)
+
+        comp_data = [[
+            Paragraph(
+                f'Semana anterior ({PERIODO_ANT}): '
+                f'<b>{comp["total"]}</b> chamados · '
+                f'<b>{comp["taxa"]}%</b> resolvidos · '
+                f'Variação volume: <font color="{cor_delta(d_total)}"><b>{d_total}</b></font> · '
+                f'Variação taxa: <font color="{cor_delta(d_taxa)}"><b>{d_taxa}</b></font>',
+                nota_comp
+            )
+        ]]
+        comp_tbl = Table(comp_data, colWidths=[17*cm])
+        comp_tbl.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1),CINZA_CLA),
+            ("BOX",(0,0),(-1,-1),0.5,CINZA_BRD),
+            ("TOPPADDING",(0,0),(-1,-1),6),
+            ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("LEFTPADDING",(0,0),(-1,-1),10),
+        ]))
+        story.append(comp_tbl)
+        story.append(Spacer(1, 0.3*cm))
 
     story += section("Volume por Status")
     status_order = [(1,"Novo",VERMELHO),(2,"Em Andamento",AZUL_MED),
@@ -364,16 +422,14 @@ def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d, nao
         c_hex = "#%02x%02x%02x" % (int(cor.red*255), int(cor.green*255), int(cor.blue*255))
         rows.append((Paragraph(f'<font color="{c_hex}"><b>{nome}</b></font>', BODY),
                      str(qtd), f"{pct}%", barra))
-    story.append(styled_tbl(["Status","Qtd.","%","Proporção"], rows,
-                             [4*cm,2*cm,2*cm,9*cm]))
+    story.append(styled_tbl(["Status","Qtd.","%","Proporção"], rows, [4*cm,2*cm,2*cm,9*cm]))
 
     story += section("Volume por Cliente")
     rows_p = []
     for p, qtd in sorted(por_prod.items(), key=lambda x: x[1], reverse=True):
         pct = round(qtd/total*100)
         rows_p.append((p, str(qtd), f"{pct}%", "█"*int(pct/5)+"░"*(20-int(pct/5))))
-    story.append(styled_tbl(["Cliente","Qtd.","%","Proporção"], rows_p,
-                             [5.5*cm,2*cm,2*cm,7.5*cm]))
+    story.append(styled_tbl(["Cliente","Qtd.","%","Proporção"], rows_p, [5.5*cm,2*cm,2*cm,7.5*cm]))
 
     story += section("Volume por Tipo de Chamado")
     tipo_order = ["Erro","Solicitação de Serviço","Wildlife","Dúvida / Orientação",
@@ -384,8 +440,8 @@ def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d, nao
         if qtd == 0: continue
         pct = round(qtd/total*100)
         rows_t.append((tp, str(qtd), f"{pct}%", "█"*int(pct/5)+"░"*(20-int(pct/5))))
-    story.append(styled_tbl(["Tipo","Qtd.","%","Proporção"], rows_t,
-                             [5.5*cm,2*cm,2*cm,7.5*cm]))
+    story.append(styled_tbl(["Tipo","Qtd.","%","Proporção"], rows_t, [5.5*cm,2*cm,2*cm,7.5*cm]))
+
 
 def tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico, tp_tipo_ciclo, tp_tipo_tecnico,
                 TEMPO_GERAL_CICLO, TEMPO_GERAL_TECNICO, TEMPO_PROD_CICLO, TEMPO_PROD_TECNICO,
@@ -446,9 +502,8 @@ def tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico, tp_tipo_ciclo, tp
         hc = TEMPO_PROD_CICLO.get(prod, ht)
         n  = len(tp_prod_tecnico[prod])
         rows_p.append((prod, fmt_hu(ht), fmt_hu(hc), str(n)))
-    story.append(styled_tbl(
-        ["Cliente","Tempo Técnico","Tempo Total","Qtd."],
-        rows_p, [6*cm,4*cm,4*cm,3*cm]))
+    story.append(styled_tbl(["Cliente","Tempo Técnico","Tempo Total","Qtd."],
+                             rows_p, [6*cm,4*cm,4*cm,3*cm]))
     story.append(Spacer(1, 0.5*cm))
 
     story += section("Tempo Médio por Tipo de Chamado")
@@ -461,9 +516,56 @@ def tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico, tp_tipo_ciclo, tp
         hc, _ = TEMPO_TIPO_CICLO.get(tp, (ht, n))
         obs   = " *(1)" if n == 1 else ""
         rows_t.append((tp, fmt_hu(ht)+obs, fmt_hu(hc)+obs, str(n)))
+    story.append(styled_tbl(["Tipo","Tempo Técnico","Tempo Total","Qtd."],
+                             rows_t, [6*cm,4*cm,4*cm,3*cm]))
+
+
+def ranking_tecnicos(story, ranking):
+    """Ranking de técnicos por chamados resolvidos na semana."""
+    story.append(PageBreak())
+    story += section(f"Ranking de Técnicos — Semana {PERIODO_LABEL}")
+
+    nota = Table([[Paragraph(
+        "Considera chamados Recebe Mais resolvidos/fechados criados na semana. "
+        "Técnico identificado pelo último comentário no chamado (excluindo respostas automáticas). "
+        "Tempos em horas úteis: seg–sex, 08h–18h.",
+        ParagraphStyle("rn",fontName="Helvetica-Oblique",fontSize=8,
+                       textColor=colors.HexColor("#7F8C8D"),leading=12)
+    )]], colWidths=[17*cm])
+    nota.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),CINZA_CLA),
+                               ("BOX",(0,0),(-1,-1),0.5,CINZA_BRD),
+                               ("TOPPADDING",(0,0),(-1,-1),6),
+                               ("BOTTOMPADDING",(0,0),(-1,-1),6),
+                               ("LEFTPADDING",(0,0),(-1,-1),10)]))
+    story.append(nota)
+    story.append(Spacer(1, 0.4*cm))
+
+    # Ordena por chamados resolvidos desc
+    ordenado = sorted(ranking.items(), key=lambda x: x[1]["count"], reverse=True)
+
+    medalhas = ["🥇", "🥈", "🥉"]
+    rows = []
+    for i, (uid, dados) in enumerate(ordenado):
+        pos   = medalhas[i] if i < 3 else f"{i+1}º"
+        nome  = dados["nome"]
+        count = dados["count"]
+        ht    = dados["tempo_tecnico_avg"]
+        hc    = dados["tempo_ciclo_avg"]
+        rows.append((
+            Paragraph(f"<b>{pos}</b>", BODY),
+            Paragraph(f"<b>{nome}</b>", BODY),
+            Paragraph(f"<b>{count}</b>", ParagraphStyle("bold_c", fontName="Helvetica-Bold",
+                      fontSize=9, textColor=AZUL_MED, alignment=TA_CENTER)),
+            fmt_hu(ht),
+            fmt_hu(hc),
+        ))
+
     story.append(styled_tbl(
-        ["Tipo","Tempo Técnico","Tempo Total","Qtd."],
-        rows_t, [6*cm,4*cm,4*cm,3*cm]))
+        ["#", "Técnico", "Resolvidos", "T. Técnico Médio", "T. Ciclo Médio"],
+        rows, [1.2*cm, 6*cm, 2.5*cm, 3.65*cm, 3.65*cm],
+        hbg=VERDE,
+    ))
+
 
 def em_aberto(story, nao_resolvidos):
     story.append(PageBreak())
@@ -521,6 +623,7 @@ def enviar_telegram(pdf_bytes):
 def main():
     print(f"[{HOJE_STR}] Relatório Automático Recebe Mais — período: {PERIODO}")
 
+    # Busca tickets da semana atual (relatório)
     tok = get_session()
     try:
         tickets_raw = buscar_tickets_periodo(tok)
@@ -528,34 +631,61 @@ def main():
         close_session(tok)
 
     if not tickets_raw:
-        print("  Nenhum ticket Recebe Mais encontrado no período. Encerrando.")
+        print("  Nenhum ticket Recebe Mais encontrado. Encerrando.")
         return
 
+    # Busca métricas da semana anterior para comparativo
+    print(f"  Buscando comparativo ({PERIODO_ANT})...")
+    tok_ant = get_session()
+    try:
+        tickets_ant = buscar_tickets_range(tok_ant, DATA_INI_ANT, DATA_FIM_ANT)
+        total_ant   = len(tickets_ant)
+        resol_ant   = sum(1 for t in tickets_ant if t.get("status") in (5, 6))
+        taxa_ant    = round(resol_ant / total_ant * 100) if total_ant else 0
+        comp        = {"total": total_ant, "resol": resol_ant, "taxa": taxa_ant}
+        print(f"  Semana anterior: {total_ant} tickets, {taxa_ant}% resolvidos")
+    finally:
+        close_session(tok_ant)
+
+    # Monta lista de tickets
     TICKETS = []
     for t in tickets_raw:
-        tid         = t.get("id")
-        titulo      = t.get("name", "")
-        criacao     = t.get("date_creation") or t.get("date", "")
-        atualizacao = t.get("date_mod", criacao)
-        urg         = t.get("urgency", 3)
-        st          = t.get("status", 1)
-        prod        = produto(t)
-        TICKETS.append((tid, titulo, criacao, atualizacao, urg, st, prod))
+        TICKETS.append((
+            t.get("id"),
+            t.get("name", ""),
+            t.get("date_creation") or t.get("date", ""),
+            t.get("date_mod", ""),
+            t.get("urgency", 3),
+            t.get("status", 1),
+            produto(t),
+        ))
 
-    print(f"  Buscando último comentário técnico para tickets resolvidos...")
+    # Busca followups para todos os resolvidos (técnico + ID do técnico)
+    print(f"  Buscando followups de {sum(1 for *_, st, _ in TICKETS if st in (5,6))} tickets resolvidos...")
     tok2 = get_session()
     try:
-        DADOS = {}
-        resolvidos = [(tid, criacao) for (tid, _, criacao, _, _, st, _) in TICKETS if st in (5, 6)]
-        for i, (tid, criacao) in enumerate(resolvidos):
-            req_id = requester_numeric_id(tok2, tid)
-            ult    = ultimo_tecnico(tok2, tid, req_id)
-            DADOS[tid] = {"criacao": criacao, "ultimo_tecnico": ult}
+        DADOS    = {}
+        RANKING  = {}   # {user_id: {nome, count, tempos}}
+        resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, _, st, prod in TICKETS if st in (5, 6)]
+        for i, (tid, criacao, prod) in enumerate(resolvidos):
+            req_id          = requester_numeric_id(tok2, tid)
+            ult_data, uid   = ultimo_tecnico_completo(tok2, tid, req_id)
+            DADOS[tid]      = {"criacao": criacao, "ultimo_tecnico": ult_data, "tecnico_id": uid}
+            if uid:
+                if uid not in RANKING:
+                    RANKING[uid] = {"nome": "", "count": 0,
+                                    "tempos_tecnico": [], "tempos_ciclo": []}
+                RANKING[uid]["count"] += 1
             if (i+1) % 10 == 0:
                 print(f"    {i+1}/{len(resolvidos)} processados...")
+
+        # Resolve nomes dos técnicos
+        for uid in RANKING:
+            RANKING[uid]["nome"] = buscar_nome_usuario(tok2, uid)
     finally:
         close_session(tok2)
 
+    # Calcula métricas
     por_status = {}
     por_prod   = {}
     por_tipo_d = {}
@@ -574,6 +704,10 @@ def main():
             ult_tec    = d.get("ultimo_tecnico")
             h_tecnico  = horas_uteis(dt_criacao, ult_tec) if ult_tec else h_ciclo
             tempos.append((h_ciclo, h_tecnico, prod, tp))
+            uid = d.get("tecnico_id")
+            if uid and uid in RANKING:
+                RANKING[uid]["tempos_tecnico"].append(h_tecnico)
+                RANKING[uid]["tempos_ciclo"].append(h_ciclo)
         if st in (1, 2, 4):
             nao_resolvidos.append((tid, titulo, criacao, urg, STATUS_NOME[st]))
 
@@ -598,23 +732,42 @@ def main():
     TEMPO_TIPO_CICLO   = {t: (sum(v)/len(v), len(v)) for t, v in tp_tipo_ciclo.items()}
     TEMPO_TIPO_TECNICO = {t: (sum(v)/len(v), len(v)) for t, v in tp_tipo_tecnico.items()}
 
-    print(f"  Total Recebe Mais: {TOTAL} | Resolvidos: {RESOL} ({TAXA_RESOL}%)")
+    # Prepara ranking final com médias de tempo
+    ranking_final = {}
+    for uid, dados in RANKING.items():
+        if dados["count"] == 0:
+            continue
+        tt = dados["tempos_tecnico"]
+        tc = dados["tempos_ciclo"]
+        ranking_final[uid] = {
+            "nome":               dados["nome"],
+            "count":              dados["count"],
+            "tempo_tecnico_avg":  sum(tt)/len(tt) if tt else 0,
+            "tempo_ciclo_avg":    sum(tc)/len(tc) if tc else 0,
+        }
+
+    print(f"  Total: {TOTAL} | Resolvidos: {RESOL} ({TAXA_RESOL}%)")
+    print(f"  Técnicos identificados: {len(ranking_final)}")
     print(f"  Tempo técnico médio: {fmt_hu(TEMPO_GERAL_TECNICO)}")
     print(f"  Tempo ciclo médio:   {fmt_hu(TEMPO_GERAL_CICLO)}")
 
+    # Gera PDF
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             leftMargin=1.5*cm, rightMargin=1.5*cm,
                             topMargin=1.8*cm, bottomMargin=1.2*cm)
     story = []
     capa(story, TOTAL, TAXA_RESOL)
-    visao_geral(story, TOTAL, RESOL, TAXA_RESOL, por_status, por_prod, por_tipo_d, nao_resolvidos)
+    visao_geral(story, TOTAL, RESOL, TAXA_RESOL, por_status, por_prod,
+                por_tipo_d, nao_resolvidos, comp)
     if tempos:
         tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico,
                     tp_tipo_ciclo, tp_tipo_tecnico,
                     TEMPO_GERAL_CICLO, TEMPO_GERAL_TECNICO,
                     TEMPO_PROD_CICLO, TEMPO_PROD_TECNICO,
                     TEMPO_TIPO_CICLO, TEMPO_TIPO_TECNICO)
+    if ranking_final:
+        ranking_tecnicos(story, ranking_final)
     if nao_resolvidos:
         em_aberto(story, nao_resolvidos)
     doc.build(story, onFirstPage=on_first, onLaterPages=on_page)
