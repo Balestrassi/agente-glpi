@@ -1,8 +1,8 @@
 """
-Relatório Semanal Automático — Recebe Mais
-Calcula a semana anterior (seg-dom), busca chamados da entidade Recebe Mais
-via API, gera PDF por cliente e envia ao grupo Telegram.
-Roda toda segunda-feira às 09h via GitHub Actions.
+TESTE — Relatório Semanal Recebe Mais
+Mesma lógica do relatorio_automatico.py, mas:
+  - Filtra apenas chamados da entidade Recebe Mais
+  - Salva PDF localmente (não envia ao Telegram)
 """
 
 import os
@@ -20,11 +20,9 @@ from reportlab.platypus import (
 )
 
 # ── Credenciais ───────────────────────────────────────────────────────
-GLPI_URL         = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
-APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",  "")
-USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
-TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
+GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
+APP_TOKEN  = os.environ.get("GLPI_APP_TOKEN",  "wXhcZYF5NcwtQWxLwWHlYC2UUlmCOMTxrJ0Q8Ryl")
+USER_TOKEN = os.environ.get("GLPI_USER_TOKEN", "J2wAo6d8GXQ0WAVxeUXsmOJwBfMVty8qtXA8HNpj")
 
 # ── Período: semana anterior seg-dom ─────────────────────────────────
 hoje         = datetime.utcnow()
@@ -177,7 +175,9 @@ def produto(ticket):
     if not entidade:
         return "Sem entidade"
     partes = [p.strip() for p in entidade.split(">")]
+    # O cliente é o último segmento do caminho
     cliente = partes[-1]
+    # Se o último segmento for "Recebe Mais" (sem sub-entidade), agrupa
     if cliente.lower() == "recebe mais":
         return "Recebe Mais (Geral)"
     return cliente
@@ -495,31 +495,9 @@ def em_aberto(story, nao_resolvidos):
         rows, [1.5*cm,7.5*cm,2.5*cm,3*cm,2.5*cm],
         hbg=AMARELO))
 
-# ── Telegram ─────────────────────────────────────────────────────────
-def enviar_telegram(pdf_bytes):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("  [!] Credenciais Telegram não configuradas, pulando envio.")
-        return
-    r = requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument",
-        data={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "caption": (
-                f"📊 *Relatório Semanal — Recebe Mais*\n"
-                f"Período: {PERIODO}\n"
-                f"Gerado automaticamente via GLPI"
-            ),
-            "parse_mode": "Markdown",
-        },
-        files={"document": (OUTPUT, pdf_bytes, "application/pdf")},
-        timeout=60,
-    )
-    r.raise_for_status()
-    print(f"  PDF enviado ao Telegram com sucesso.")
-
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
-    print(f"[{HOJE_STR}] Relatório Automático Recebe Mais — período: {PERIODO}")
+    print(f"[{HOJE_STR}] TESTE — Relatório Recebe Mais | período: {PERIODO}")
 
     tok = get_session()
     try:
@@ -620,8 +598,10 @@ def main():
     doc.build(story, onFirstPage=on_first, onLaterPages=on_page)
 
     pdf_bytes = buf.getvalue()
-    print(f"  PDF gerado: {len(pdf_bytes)//1024} KB")
-    enviar_telegram(pdf_bytes)
+    with open(OUTPUT, "wb") as f:
+        f.write(pdf_bytes)
+    print(f"  PDF salvo: {OUTPUT} ({len(pdf_bytes)//1024} KB)")
+    print(f"  Abra o arquivo: {os.path.abspath(OUTPUT)}")
 
 if __name__ == "__main__":
     main()
