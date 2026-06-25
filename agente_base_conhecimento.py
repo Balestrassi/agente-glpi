@@ -10,8 +10,10 @@ import json
 import re
 import requests
 import html
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+BRASILIA = timezone(timedelta(hours=-3))
 
 # ── Configuração ──────────────────────────────────────────────────────
 GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
@@ -199,7 +201,8 @@ def buscar_chamados_novos(tok) -> list:
     Não filtra por status pois o primeiro atendimento automático pode mudar o status de
     Novo (1) para Em andamento (2) antes deste agente rodar.
     Deduplicação feita pelo processados.json — sem risco de sugestão duplicada."""
-    limite = (datetime.now() - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
+    # GLPI armazena datas em BRT (UTC-3) — usar BRT aqui para a comparação ser correta
+    limite = (datetime.now(BRASILIA).replace(tzinfo=None) - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         tickets = api_get("Ticket", tok, {
             "expand_dropdowns": True,
@@ -228,7 +231,7 @@ def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, ent
     if not kw_titulo and not kw_desc:
         return []
 
-    limite_data = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    limite_data = (datetime.now(BRASILIA).replace(tzinfo=None) - timedelta(days=90)).strftime("%Y-%m-%d")
     encontrados = {}
 
     def registrar(t, score):
