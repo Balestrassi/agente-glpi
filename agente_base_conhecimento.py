@@ -194,8 +194,10 @@ def ja_tem_sugestao_ia(tok, chamado_id: int) -> bool:
 
 # ── Lógica principal ──────────────────────────────────────────────────
 def buscar_chamados_novos(tok) -> list:
-    """Retorna chamados com status Novo criados na janela de tempo.
+    """Retorna chamados criados na janela de tempo (qualquer status aberto).
     Janela ampla (2h) para cobrir delays do GitHub Actions (cron pode atrasar até 30 min).
+    Não filtra por status pois o primeiro atendimento automático pode mudar o status de
+    Novo (1) para Em andamento (2) antes deste agente rodar.
     Deduplicação feita pelo processados.json — sem risco de sugestão duplicada."""
     limite = (datetime.now() - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -204,11 +206,16 @@ def buscar_chamados_novos(tok) -> list:
             "range": "0-99",
             "sort": "date_creation",
             "order": "DESC",
-            "searchText[status]": 1,
         })
         if not isinstance(tickets, list):
             return []
-        return [t for t in tickets if (t.get("date_creation") or "") >= limite]
+        # Inclui qualquer status aberto (1=Novo, 2=Em andamento, 4=Pendente)
+        # Exclui resolvidos/fechados (5, 6) — não faz sentido sugerir para chamados encerrados
+        return [
+            t for t in tickets
+            if (t.get("date_creation") or "") >= limite
+            and t.get("status") not in (5, 6)
+        ]
     except Exception as e:
         print(f"  [!] Erro ao buscar chamados novos: {e}")
         return []
