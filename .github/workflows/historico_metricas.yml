@@ -1,0 +1,31 @@
+name: Histórico de Métricas — Google Sheets
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'   # Segunda 22h BRT (01h UTC), antes do relatório semanal
+  workflow_dispatch:
+
+jobs:
+  registrar-metricas:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests gspread google-auth
+
+      - name: Registrar métricas na planilha
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python historico_metricas.py
