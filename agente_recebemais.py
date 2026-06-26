@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import html
 from datetime import datetime
 
 GLPI_URL = os.environ["GLPI_URL"].rstrip("/")
@@ -9,7 +10,9 @@ USER_TOKEN = os.environ["GLPI_USER_TOKEN"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-PALAVRA_CHAVE = "RecebeMais"
+# IDs da equipe interna (respostas desses usuarios nao disparam notificacao)
+EQUIPE_IDS = {431, 179, 449}  # victor.balestrassi, felipe.aggio, nas.pontes(jhonatan)
+
 IDS_VISTOS_FILE = "ids_vistos.json"
 
 PRIMEIRA_RESPOSTA = """Olá,
@@ -25,16 +28,20 @@ Atenciosamente,
 Equipe de Suporte Recebe Mais"""
 
 
-def carregar_ids_vistos():
+def carregar_estado():
     if os.path.exists(IDS_VISTOS_FILE):
         with open(IDS_VISTOS_FILE, "r") as f:
-            return set(json.load(f))
-    return set()
+            data = json.load(f)
+        # Migrar formato antigo (lista simples) para novo formato
+        if isinstance(data, list):
+            return {"chamados": data, "followups": {}}
+        return data
+    return {"chamados": [], "followups": {}}
 
 
-def salvar_ids_vistos(ids):
+def salvar_estado(estado):
     with open(IDS_VISTOS_FILE, "w") as f:
-        json.dump(list(ids), f)
+        json.dump(estado, f)
 
 
 def get_session():
@@ -76,6 +83,16 @@ def buscar_chamados_recebemais(session_token):
     ]
 
 
+def buscar_followups(session_token, chamado_id):
+    r = requests.get(
+        f"{GLPI_URL}/apirest.php/Ticket/{chamado_id}/ITILFollowup/",
+        headers={"App-Token": APP_TOKEN, "Session-Token": session_token},
+        params={"range": "0-50", "order": "DESC", "sort": "date_creation"},
+    )
+    data = r.json()
+    return data if isinstance(data, list) else []
+
+
 def postar_primeiro_atendimento(session_token, chamado_id):
     requests.post(
         f"{GLPI_URL}/apirest.php/ITILFollowup",
@@ -107,7 +124,7 @@ def enviar_telegram(mensagem):
         return False
 
 
-def processar_chamado(session_token, chamado):
+def processar_novo_chamado(session_token, chamado):
     chamado_id = chamado["id"]
     titulo = chamado.get("name", "Sem titulo")
     criado_em = chamado.get("date_creation", "")
@@ -131,28 +148,89 @@ def processar_chamado(session_token, chamado):
     print(f"  -> Notificacao Telegram enviada!")
 
 
+def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
+    chamado_id = chamado["id"]
+    titulo = chamado.get("name", "Sem titulo")
+
+    followups = buscar_followups(session_token, chamado_id)
+    if not followups:
+        return ultimo_followup_id
+
+    followup_mais_recente = followups[0]
+    novo_id = followup_mais_recente["id"]
+
+    # Se nao ha registro anterior, apenas salva o mais recente sem notificar
+    if ultimo_followup_id == 0:
+        return novo_id
+
+    # Se o followup mais recente ja foi visto, nada a fazer
+    if novo_id <= ultimo_followup_id:
+        return ultimo_followup_id
+
+    # Ha followups novos — verifica se algum e do cliente
+    for followup in followups:
+        if followup["id"] <= ultimo_followup_id:
+            break
+
+        autor_id = followup.get("users_id", 0)
+        if autor_id not in EQUIPE_IDS and autor_id != 0:
+            conteudo_html = followup.get("content", "")
+            conteudo = html.unescape(conteudo_html).replace("<p>", "").replace("</p>", " ").replace("<br>", " ").strip()
+            conteudo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
+
+            mensagem = (
+                f"Cliente respondeu no chamado RecebeMais!\n\n"
+                f"ID: #{chamado_id}\n"
+                f"Titulo: {titulo}\n"
+                f"Mensagem: {conteudo}\n\n"
+                f"Acesse: {GLPI_URL}/front/ticket.form.php?id={chamado_id}"
+            )
+            enviar_telegram(mensagem)
+            print(f"  -> Cliente respondeu no #{chamado_id}, notificacao enviada!")
+            break
+
+    return novo_id
+
+
 def main():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando verificacao...")
 
-    ids_vistos = carregar_ids_vistos()
+    estado = carregar_estado()
+    chamados_vistos = set(estado["chamados"])
+    followups_vistos = estado["followups"]
 
     session = get_session()
     chamados = buscar_chamados_recebemais(session)
 
-    if not ids_vistos and chamados:
-        ids_vistos = {c["id"] for c in chamados}
-        salvar_ids_vistos(ids_vistos)
-        print(f"{len(ids_vistos)} chamados existentes registrados.")
+    # Primeira execucao: registra tudo como visto sem notificar
+    if not chamados_vistos and chamados:
+        chamados_vistos = {c["id"] for c in chamados}
+        for c in chamados:
+            followups = buscar_followups(session, c["id"])
+            followups_vistos[str(c["id"])] = followups[0]["id"] if followups else 0
+        salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
+        print(f"{len(chamados_vistos)} chamados existentes registrados.")
         close_session(session)
         return
 
-    novos = [c for c in chamados if c["id"] not in ids_vistos]
+    novos = [c for c in chamados if c["id"] not in chamados_vistos]
 
+    # Processa chamados novos
     for chamado in novos:
-        processar_chamado(session, chamado)
-        ids_vistos.add(chamado["id"])
+        processar_novo_chamado(session, chamado)
+        chamados_vistos.add(chamado["id"])
+        followups = buscar_followups(session, chamado["id"])
+        followups_vistos[str(chamado["id"])] = followups[0]["id"] if followups else 0
 
-    salvar_ids_vistos(ids_vistos)
+    # Verifica respostas de clientes em chamados ja conhecidos
+    for chamado in chamados:
+        if chamado["id"] in chamados_vistos and chamado["id"] not in {c["id"] for c in novos}:
+            chave = str(chamado["id"])
+            ultimo_id = followups_vistos.get(chave, 0)
+            novo_ultimo_id = verificar_resposta_cliente(session, chamado, ultimo_id)
+            followups_vistos[chave] = novo_ultimo_id
+
+    salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
     close_session(session)
 
     if not novos:
