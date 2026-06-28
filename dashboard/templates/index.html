@@ -130,6 +130,35 @@
   .prog-track { height: 8px; background: #F0F2F5; border-radius: 4px; overflow: hidden; }
   .prog-fill  { height: 100%; border-radius: 4px; background: #27AE60; transition: width .4s ease; }
 
+  /* Tendências */
+  .trend-section { margin-bottom: 1.5rem; }
+  .trend-title {
+    font-size: 13px; font-weight: 700; color: #1A3A5C;
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .trend-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .trend-card {
+    background: #fff;
+    border-radius: 10px;
+    border: 1px solid #E4E7EF;
+    padding: 1.1rem 1.25rem;
+  }
+  .trend-card-title {
+    font-size: 11px; font-weight: 600; color: #7F8C8D;
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+  }
+  .trend-empty {
+    font-size: 12px; color: #95A5A6; text-align: center;
+    padding: 2rem 1rem;
+  }
+  @media (max-width: 700px) {
+    .trend-grid { grid-template-columns: 1fr; }
+  }
+
   /* Footer */
   .footer {
     display: flex; align-items: center; gap: 8px;
@@ -254,6 +283,26 @@
 
   </div>
 
+  <div class="trend-section">
+    <div class="trend-title">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#1A3A5C" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Tendências Históricas — últimas semanas
+    </div>
+    <div id="trend-empty" class="trend-empty" style="display:none">
+      Histórico ainda sendo acumulado. Os gráficos aparecerão após a primeira semana completa.
+    </div>
+    <div class="trend-grid" id="trend-grid">
+      <div class="trend-card">
+        <div class="trend-card-title">Volume de chamados por semana</div>
+        <canvas id="chart-volume" height="160"></canvas>
+      </div>
+      <div class="trend-card">
+        <div class="trend-card-title">Taxa de resolução % por semana</div>
+        <canvas id="chart-taxa" height="160"></canvas>
+      </div>
+    </div>
+  </div>
+
   <div class="footer">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
@@ -362,6 +411,84 @@ async function carregar() {
 
 carregar();
 setInterval(carregar, 300000); // 5 minutos
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+let chartVolume = null;
+let chartTaxa   = null;
+
+async function carregarHistorico() {
+  try {
+    const r = await fetch("/api/historico");
+    if (!r.ok) return;
+    const dados = await r.json();
+    if (!dados || dados.length === 0) {
+      document.getElementById("trend-empty").style.display = "block";
+      document.getElementById("trend-grid").style.display  = "none";
+      return;
+    }
+
+    const labels    = dados.map(d => d.periodo);
+    const totais    = dados.map(d => d.total);
+    const resolvidos= dados.map(d => d.resolvidos);
+    const taxas     = dados.map(d => d.taxa);
+
+    const baseOpts = {
+      responsive: true,
+      plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: {
+        x: { ticks: { font: { size: 10 }, maxRotation: 30 }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: "#f0f2f5" } }
+      }
+    };
+
+    if (chartVolume) chartVolume.destroy();
+    chartVolume = new Chart(document.getElementById("chart-volume"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "Total",     data: totais,     backgroundColor: "rgba(37,99,235,0.18)", borderColor: "#2563eb", borderWidth: 2, borderRadius: 4 },
+          { label: "Resolvidos",data: resolvidos, backgroundColor: "rgba(22,163,74,0.18)",  borderColor: "#16a34a", borderWidth: 2, borderRadius: 4 },
+        ]
+      },
+      options: baseOpts
+    });
+
+    if (chartTaxa) chartTaxa.destroy();
+    chartTaxa = new Chart(document.getElementById("chart-taxa"), {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Taxa de resolução %",
+          data: taxas,
+          borderColor: "#2563eb",
+          backgroundColor: "rgba(37,99,235,0.08)",
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: "#2563eb",
+          fill: true,
+          tension: 0.35,
+        }]
+      },
+      options: {
+        ...baseOpts,
+        scales: {
+          ...baseOpts.scales,
+          y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } }
+        }
+      }
+    });
+
+  } catch(e) {
+    console.warn("Histórico indisponível:", e);
+  }
+}
+
+carregarHistorico();
+setInterval(carregarHistorico, 3600000); // 1 hora
 </script>
 </body>
 </html>

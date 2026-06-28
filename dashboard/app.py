@@ -4,22 +4,35 @@ Serve o HTML e um endpoint /api/stats com dados do GLPI (cache 5 min).
 """
 
 import os
+import json
 import time
 import threading
 import requests
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
 
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    _GSPREAD_OK = True
+except ImportError:
+    _GSPREAD_OK = False
+
 BRASILIA = timezone(timedelta(hours=-3))
 
 app = Flask(__name__)
 
-GLPI_URL         = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
-APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",  "")
-USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
-TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
+GLPI_URL         = os.environ.get("GLPI_URL",                "https://servicedesk.a7on.ai")
+APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",          "")
+USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN",         "")
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",          "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID",        "")
+GOOGLE_JSON      = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+SHEET_ID         = os.environ.get("SPREADSHEET_ID",          "")
+SHEET_NAME       = "Histórico Semanal"
 CACHE_TTL        = 300  # 5 minutos
+
+_hist_cache = {"ts": 0, "data": None}
 
 _cache = {"ts": 0, "data": None}
 
@@ -198,6 +211,54 @@ def stats():
     return jsonify(_cache["data"])
 
 
+# ── Histórico Google Sheets ───────────────────────────────────────────
+
+def buscar_historico():
+    if not _GSPREAD_OK or not GOOGLE_JSON or not SHEET_ID:
+        return []
+    try:
+        creds = Credentials.from_service_account_info(
+            json.loads(GOOGLE_JSON),
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"],
+        )
+        gc   = gspread.authorize(creds)
+        ws   = gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        rows = ws.get_all_values()
+        if len(rows) < 2:
+            return []
+        # header: Data | Período | Total | Resolvidos | Taxa% | T.Técnico(h) | T.Ciclo(h) | Em Aberto
+        result = []
+        for row in rows[1:]:
+            try:
+                result.append({
+                    "data":      row[0] if len(row) > 0 else "",
+                    "periodo":   row[1] if len(row) > 1 else "",
+                    "total":     int(float(row[2]))   if len(row) > 2 and row[2]  else 0,
+                    "resolvidos":int(float(row[3]))   if len(row) > 3 and row[3]  else 0,
+                    "taxa":      float(row[4])         if len(row) > 4 and row[4]  else 0,
+                    "t_tecnico": float(row[5])         if len(row) > 5 and row[5]  else 0,
+                    "t_ciclo":   float(row[6])         if len(row) > 6 and row[6]  else 0,
+                    "em_aberto": int(float(row[7]))   if len(row) > 7 and row[7]  else 0,
+                })
+            except Exception:
+                continue
+        return result[-12:]  # últimas 12 semanas
+    except Exception as e:
+        print(f"[historico] erro: {e}")
+        return []
+
+
+@app.route("/api/historico")
+def historico():
+    global _hist_cache
+    now = time.time()
+    if _hist_cache["data"] is None or now - _hist_cache["ts"] > 3600:  # cache 1h
+        _hist_cache["data"] = buscar_historico()
+        _hist_cache["ts"]   = now
+    return jsonify(_hist_cache["data"])
+
+
 # ── Telegram Bot ─────────────────────────────────────────────────────
 
 def _reply(chat_id, text):
@@ -336,6 +397,48 @@ def bot_cliente(chat_id, arg):
         close_session(tok)
 
 
+def bot_tendencias(chat_id):
+    dados = buscar_historico()
+    if not dados:
+        _reply(chat_id, "📊 Ainda não há histórico suficiente\\. O registro começa todo domingo às 22h\\.")
+        return
+    n = len(dados)
+    ultima = dados[-1]
+    linhas = [f"📈 *Tendências — últimas {n} semana(s)*", ""]
+
+    # Tabela resumo
+    for d in dados[-4:]:
+        seta_taxa = ""
+        if dados.index(d) > 0:
+            ant = dados[dados.index(d) - 1]["taxa"]
+            diff = d["taxa"] - ant
+            seta_taxa = f" {'↑' if diff > 0 else '↓'}{abs(diff):.0f}pp" if diff != 0 else " ↔"
+        linhas.append(f"*{d['periodo']}*")
+        linhas.append(f"  Total: {d['total']} | Resolvidos: {d['resolvidos']} | Taxa: {d['taxa']:.0f}%{seta_taxa}")
+
+    # Análise de tendência
+    if n >= 2:
+        linhas.append("")
+        taxas = [d["taxa"] for d in dados]
+        media = sum(taxas) / len(taxas)
+        tendencia_taxa = taxas[-1] - taxas[0]
+        linhas.append(f"*Análise:*")
+        linhas.append(f"  Média de resolução: {media:.0f}%")
+        if tendencia_taxa > 5:
+            linhas.append(f"  Tendência: ↑ Melhorando \\({tendencia_taxa:+.0f}pp desde a 1ª semana\\)")
+        elif tendencia_taxa < -5:
+            linhas.append(f"  Tendência: ↓ Atenção \\({tendencia_taxa:+.0f}pp desde a 1ª semana\\)")
+        else:
+            linhas.append(f"  Tendência: ↔ Estável")
+
+        melhor = max(dados, key=lambda x: x["taxa"])
+        linhas.append(f"  Melhor semana: {melhor['periodo']} \\({melhor['taxa']:.0f}%\\)")
+
+    linhas.append("")
+    linhas.append("_Ver gráficos: suporte\\-rm\\-dashboard\\.onrender\\.com_")
+    _reply(chat_id, "\n".join(linhas))
+
+
 def bot_ajuda(chat_id):
     linhas = [
         "🤖 *Bot Suporte Recebe Mais*", "",
@@ -345,6 +448,7 @@ def bot_ajuda(chat_id):
         "`/criticos` — chamados críticos \\(\\+3 dias\\)",
         "`/chamado 14412` — detalhes de um chamado",
         "`/cliente tegma` — chamados abertos de um cliente",
+        "`/tendencias` — análise de tendência das últimas semanas",
         "`/ajuda` — esta mensagem",
     ]
     _reply(chat_id, "\n".join(linhas))
@@ -355,10 +459,11 @@ def _processar_comando(chat_id, text):
     cmd   = parts[0].lower().split("@")[0]
     arg   = parts[1].strip() if len(parts) > 1 else ""
     cmds  = {
-        "/start":   bot_ajuda,   "/ajuda": bot_ajuda,   "/help": bot_ajuda,
-        "/resumo":  bot_resumo,
-        "/abertos": bot_abertos,
-        "/criticos":bot_criticos,
+        "/start":      bot_ajuda,      "/ajuda": bot_ajuda, "/help": bot_ajuda,
+        "/resumo":     bot_resumo,
+        "/abertos":    bot_abertos,
+        "/criticos":   bot_criticos,
+        "/tendencias": bot_tendencias,
     }
     if cmd in cmds:
         cmds[cmd](chat_id)
