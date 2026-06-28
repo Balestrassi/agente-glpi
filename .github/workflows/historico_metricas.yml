@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests gspread google-auth
+        run: pip install requests gspread google-auth google-api-python-client
 
       - name: Registrar métricas na planilha
         env:

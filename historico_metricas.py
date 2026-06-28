@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
 
 # ── Credenciais ───────────────────────────────────────────────────────
 GLPI_URL    = os.environ.get("GLPI_URL",               "https://servicedesk.a7on.ai")
@@ -174,6 +175,138 @@ def get_worksheet():
         ws.append_row(CABECALHO)
         return ws
 
+# ── Dashboard com Gráficos ────────────────────────────────────────────
+
+def criar_dashboard(creds, spreadsheet_id):
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+    ss     = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    sheets = ss.get("sheets", [])
+
+    hist_sheet_id = None
+    dash_sheet_id = None
+    chart_ids_dash = []
+
+    for s in sheets:
+        props = s.get("properties", {})
+        if props.get("title") == SHEET_NAME:
+            hist_sheet_id = props["sheetId"]
+        if props.get("title") == "Dashboard":
+            dash_sheet_id = props["sheetId"]
+            for chart in s.get("charts", []):
+                chart_ids_dash.append(chart["chartId"])
+
+    requests_batch = []
+
+    if dash_sheet_id is None:
+        requests_batch.append({"addSheet": {"properties": {"title": "Dashboard", "index": 0}}})
+
+    for cid in chart_ids_dash:
+        requests_batch.append({"deleteEmbeddedObject": {"objectId": cid}})
+
+    if requests_batch:
+        result = service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"requests": requests_batch}
+        ).execute()
+        if dash_sheet_id is None:
+            for reply in result.get("replies", []):
+                if "addSheet" in reply:
+                    dash_sheet_id = reply["addSheet"]["properties"]["sheetId"]
+
+    def fonte(col_ini, col_fim):
+        return {"sourceRange": {"sources": [{
+            "sheetId": hist_sheet_id,
+            "startRowIndex": 0, "endRowIndex": 100,
+            "startColumnIndex": col_ini, "endColumnIndex": col_fim,
+        }]}}
+
+    def posicao(row, col, w=550, h=320):
+        return {"overlayPosition": {
+            "anchorCell": {"sheetId": dash_sheet_id, "rowIndex": row, "columnIndex": col},
+            "widthPixels": w, "heightPixels": h,
+        }}
+
+    def cor(r, g, b):
+        return {"red": r, "green": g, "blue": b}
+
+    graficos = [
+        # 1 — Volume: Total vs Resolvidos (barras)
+        {
+            "spec": {
+                "title": "Volume de Chamados por Semana",
+                "basicChart": {
+                    "chartType": "COLUMN",
+                    "legendPosition": "BOTTOM_LEGEND",
+                    "axis": [
+                        {"position": "BOTTOM_AXIS", "title": "Semana"},
+                        {"position": "LEFT_AXIS",   "title": "Chamados"},
+                    ],
+                    "domains": [{"domain": fonte(1, 2)}],
+                    "series": [
+                        {"series": fonte(2, 3), "targetAxis": "LEFT_AXIS",
+                         "color": cor(0.145, 0.392, 0.922)},
+                        {"series": fonte(3, 4), "targetAxis": "LEFT_AXIS",
+                         "color": cor(0.086, 0.639, 0.290)},
+                    ],
+                    "headerCount": 1,
+                },
+            },
+            "position": posicao(0, 0),
+        },
+        # 2 — Taxa de resolução % (linha)
+        {
+            "spec": {
+                "title": "Taxa de Resolucao % por Semana",
+                "basicChart": {
+                    "chartType": "LINE",
+                    "legendPosition": "BOTTOM_LEGEND",
+                    "axis": [
+                        {"position": "BOTTOM_AXIS", "title": "Semana"},
+                        {"position": "LEFT_AXIS",   "title": "Taxa %"},
+                    ],
+                    "domains": [{"domain": fonte(1, 2)}],
+                    "series": [
+                        {"series": fonte(4, 5), "targetAxis": "LEFT_AXIS",
+                         "color": cor(0.145, 0.392, 0.922)},
+                    ],
+                    "headerCount": 1,
+                },
+            },
+            "position": posicao(0, 9),
+        },
+        # 3 — Tempo médio técnico vs ciclo (linha)
+        {
+            "spec": {
+                "title": "Tempo Medio de Atendimento (horas uteis)",
+                "basicChart": {
+                    "chartType": "LINE",
+                    "legendPosition": "BOTTOM_LEGEND",
+                    "axis": [
+                        {"position": "BOTTOM_AXIS", "title": "Semana"},
+                        {"position": "LEFT_AXIS",   "title": "Horas"},
+                    ],
+                    "domains": [{"domain": fonte(1, 2)}],
+                    "series": [
+                        {"series": fonte(5, 6), "targetAxis": "LEFT_AXIS",
+                         "color": cor(0.957, 0.620, 0.043)},
+                        {"series": fonte(6, 7), "targetAxis": "LEFT_AXIS",
+                         "color": cor(0.863, 0.196, 0.184)},
+                    ],
+                    "headerCount": 1,
+                },
+            },
+            "position": posicao(20, 0),
+        },
+    ]
+
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"requests": [{"addChart": {"chart": g}} for g in graficos]}
+    ).execute()
+    print("  Dashboard atualizado com 3 graficos")
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
     agora = datetime.now(BRASILIA).replace(tzinfo=None)
@@ -242,6 +375,17 @@ def main():
     print(f"  ✓ Linha registrada na aba '{SHEET_NAME}'")
     print(f"  Resumo: {total} tickets | {resol} resolvidos ({taxa}%) | "
           f"T.Técnico: {t_tec_med}h | T.Ciclo: {t_ciclo_med}h")
+
+    # Atualiza aba Dashboard com gráficos
+    try:
+        creds = Credentials.from_service_account_info(
+            json.loads(GOOGLE_JSON),
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"],
+        )
+        criar_dashboard(creds, SHEET_ID)
+    except Exception as e:
+        print(f"  [!] Erro ao criar dashboard: {e}")
 
 if __name__ == "__main__":
     main()
