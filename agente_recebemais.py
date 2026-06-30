@@ -124,6 +124,16 @@ def enviar_telegram(mensagem):
         return False
 
 
+def ja_tem_primeiro_atendimento(session_token, chamado_id):
+    """Checa nos followups do GLPI se a mensagem já foi enviada — evita duplicatas mesmo com falha de cache."""
+    followups = buscar_followups(session_token, chamado_id)
+    for f in followups:
+        conteudo = f.get("content", "") or ""
+        if "Equipe de Suporte Recebe Mais" in conteudo:
+            return True
+    return False
+
+
 def processar_novo_chamado(session_token, chamado):
     chamado_id = chamado["id"]
     titulo = chamado.get("name", "Sem titulo")
@@ -217,10 +227,14 @@ def main():
 
     # Processa chamados novos
     for chamado in novos:
-        processar_novo_chamado(session, chamado)
-        chamados_vistos.add(chamado["id"])
-        followups = buscar_followups(session, chamado["id"])
-        followups_vistos[str(chamado["id"])] = followups[0]["id"] if followups else 0
+        cid = chamado["id"]
+        if ja_tem_primeiro_atendimento(session, cid):
+            print(f"  Chamado #{cid} já tem primeiro atendimento — adicionando ao cache sem reenviar")
+        else:
+            processar_novo_chamado(session, chamado)
+        chamados_vistos.add(cid)
+        followups = buscar_followups(session, cid)
+        followups_vistos[str(cid)] = followups[0]["id"] if followups else 0
 
     # Verifica respostas de clientes em chamados ja conhecidos
     for chamado in chamados:
