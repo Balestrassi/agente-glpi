@@ -691,23 +691,41 @@ async function carregarTecnicos() {
     if (!ranking.length) { el.innerHTML = '<div class="empty">Nenhum chamado em aberto no momento</div>'; return; }
     el.innerHTML = ranking.map((t, idx) => {
       const iniciais = t.nome.split(" ").filter(Boolean).slice(0,2).map(p => p[0]).join("").toUpperCase();
-      return `<div class="tec-row" onclick="mostrarChamadosTecnico(${idx})">
-        <div class="tec-avatar">${iniciais || "?"}</div>
-        <div class="tec-info">
-          <div class="tec-nome">${t.nome}</div>
-          <div class="tec-sub">${t.count} chamado(s) em aberto</div>
+      return `<div>
+        <div class="tec-row" onclick="toggleChamadosTecnico(${idx})">
+          <div class="tec-avatar">${iniciais || "?"}</div>
+          <div class="tec-info">
+            <div class="tec-nome">${t.nome}</div>
+            <div class="tec-sub">${t.count} chamado(s) em aberto</div>
+          </div>
+          <div class="tec-count">${t.count}</div>
         </div>
-        <div class="tec-count">${t.count}</div>
+        <div class="ticket-list" id="tec-tickets-${idx}" style="display:none; margin: -2px 0 10px 4px;"></div>
       </div>`;
     }).join("");
   } catch (e) {
     el.innerHTML = `<div class="empty">Erro ao carregar: ${e.message}</div>`;
   }
 }
-function mostrarChamadosTecnico(idx) {
+function toggleChamadosTecnico(idx) {
   const t = _rankingTecnicos[idx];
-  if (!t || !t.tickets || !t.tickets.length) return;
-  abrirModal(t.tickets[0].id);
+  const cont = document.getElementById(`tec-tickets-${idx}`);
+  if (!t || !t.tickets || !t.tickets.length || !cont) return;
+
+  const abrindo = cont.style.display === "none";
+  cont.style.display = abrindo ? "flex" : "none";
+  if (abrindo && !cont.dataset.preenchido) {
+    cont.innerHTML = t.tickets.map(tk => {
+      const cls = tk.dias >= 7 ? "crit-alto" : (tk.dias >= 3 ? "crit-medio" : "");
+      return `<div class="ticket-row ${cls}" onclick="event.stopPropagation(); abrirModal(${tk.id})">
+        <span class="ticket-id">#${tk.id}</span>
+        <span class="ticket-title">${tk.titulo}</span>
+        <span class="ticket-dias">${tk.dias}d</span>
+        <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${tk.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
+      </div>`;
+    }).join("");
+    cont.dataset.preenchido = "1";
+  }
 }
 
 // ── Comparativo de semanas ──────────────────────────────────────────

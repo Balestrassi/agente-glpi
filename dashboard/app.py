@@ -5,6 +5,7 @@ Serve o HTML e um endpoint /api/stats com dados do GLPI (cache 5 min).
 
 import os
 import json
+import html
 import time
 import threading
 import requests
@@ -83,7 +84,7 @@ def eh_recebemai(ticket):
 
 def produto(ticket):
     """Extrai o nome do cliente a partir do caminho da entidade."""
-    entidade = (ticket.get("entities_id") or "").strip()
+    entidade = html.unescape((ticket.get("entities_id") or "").strip())
     if not entidade:
         return "Sem entidade"
     partes = [p.strip() for p in entidade.split(">")]
@@ -237,7 +238,7 @@ def ticket_detail(tid):
                                {"range": "0-5", "order": "DESC", "sort": "date_creation"})
             status_map = {1:"Novo", 2:"Em andamento", 4:"Pendente", 5:"Resolvido", 6:"Fechado"}
             urg_map    = {1:"Muito Baixa", 2:"Baixa", 3:"Média", 4:"Alta", 5:"Muito Alta"}
-            entidade   = (t.get("entities_id") or "").strip()
+            entidade   = html.unescape((t.get("entities_id") or "").strip())
             cliente    = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
             fups = []
             for f in (fups_raw if isinstance(fups_raw, list) else [])[:4]:
@@ -542,7 +543,7 @@ def bot_chamado(chat_id, arg):
             return
         status_map = {1:"Novo",2:"Em andamento",4:"Pendente",5:"Resolvido",6:"Fechado"}
         urg_map    = {1:"Muito Baixa",2:"Baixa",3:"Média",4:"Alta",5:"Muito Alta"}
-        entidade   = (t.get("entities_id") or "").strip()
+        entidade   = html.unescape((t.get("entities_id") or "").strip())
         cli        = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
         titulo     = (t.get("name") or "Sem título").replace("_","\\_").replace("*","\\*")
         criacao    = (t.get("date_creation") or "")[:16]
