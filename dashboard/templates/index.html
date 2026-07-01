@@ -6,191 +6,151 @@
 <title>Suporte RM — Dashboard</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #F5F6FA;
-    color: #2C3E50;
-    min-height: 100vh;
-  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F5F6FA; color: #2C3E50; min-height: 100vh; }
 
   /* Topbar */
-  .topbar {
-    background: #1A3A5C;
-    color: #fff;
-    padding: 0 2rem;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  .topbar-left  { display: flex; align-items: center; gap: 12px; }
+  .topbar { background: #1A3A5C; color: #fff; padding: 0 1.5rem; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; gap: 12px; }
+  .topbar-left { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
   .topbar-title { font-size: 15px; font-weight: 600; letter-spacing: .01em; }
-  .topbar-sub   { font-size: 12px; color: #D6E8F7; }
-  .badge-live {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 11px; padding: 4px 10px; border-radius: 999px;
-    background: rgba(39,174,96,.18); color: #7DDFAB;
-    border: 1px solid rgba(39,174,96,.35);
+  .topbar-sub { font-size: 12px; color: #D6E8F7; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+
+  /* Search */
+  .search-wrap { position: relative; }
+  .search-input {
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+    border-radius: 8px; padding: 6px 12px 6px 34px; color: #fff; font-size: 13px;
+    width: 200px; outline: none; transition: all .2s;
   }
-  .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #27AE60; animation: blink 1.4s infinite;
+  .search-input::placeholder { color: rgba(255,255,255,.5); }
+  .search-input:focus { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); width: 240px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .6; pointer-events: none; }
+
+  /* Refresh btn */
+  .btn-refresh {
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+    border-radius: 8px; color: #fff; padding: 6px 12px; font-size: 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: background .15s;
   }
+  .btn-refresh:hover { background: rgba(255,255,255,.22); }
+  .btn-refresh svg { transition: transform .6s; }
+  .btn-refresh.loading svg { animation: spin .8s linear infinite; }
+
+  .badge-live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 4px 10px; border-radius: 999px; background: rgba(39,174,96,.18); color: #7DDFAB; border: 1px solid rgba(39,174,96,.35); flex-shrink: 0; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #27AE60; animation: blink 1.4s infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Layout */
   .main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.25rem; }
 
+  /* Filter bar */
+  .filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; min-height: 32px; }
+  .filter-tag { display: inline-flex; align-items: center; gap: 6px; background: #1A3A5C; color: #fff; border-radius: 999px; padding: 4px 12px; font-size: 12px; }
+  .filter-tag button { background: none; border: none; color: rgba(255,255,255,.7); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 4px; }
+  .filter-tag button:hover { color: #fff; }
+
   /* KPI cards */
-  .kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 1.5rem;
-  }
-  .kpi {
-    background: #fff;
-    border-radius: 10px;
-    padding: 1rem 1.25rem;
-    border: 1px solid #E4E7EF;
-  }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+  .kpi { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; border: 1px solid #E4E7EF; }
   .kpi-label { font-size: 11px; color: #7F8C8D; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
   .kpi-value { font-size: 30px; font-weight: 700; line-height: 1; }
-  .kpi-sub   { font-size: 11px; color: #95A5A6; margin-top: 4px; }
-  .v-amber { color: #E67E22; }
-  .v-green  { color: #27AE60; }
-  .v-red    { color: #E74C3C; }
-  .v-blue   { color: #2E6DA4; }
+  .kpi-sub { font-size: 11px; color: #95A5A6; margin-top: 4px; }
+  .v-amber { color: #E67E22; } .v-green { color: #27AE60; } .v-red { color: #E74C3C; } .v-blue { color: #2E6DA4; }
 
   /* Section grid */
-  .section-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    margin-bottom: 1.5rem;
-  }
+  .section-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 1.5rem; }
 
   /* Cards */
-  .card {
-    background: #fff;
-    border-radius: 10px;
-    border: 1px solid #E4E7EF;
-    padding: 1.1rem 1.25rem;
-  }
-  .card-title {
-    font-size: 11px; font-weight: 600; color: #7F8C8D;
-    text-transform: uppercase; letter-spacing: .06em;
-    margin-bottom: 14px;
-  }
+  .card { background: #fff; border-radius: 10px; border: 1px solid #E4E7EF; padding: 1.1rem 1.25rem; }
+  .card-title { font-size: 11px; font-weight: 600; color: #7F8C8D; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 14px; }
 
   /* Barras */
-  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; border-radius: 6px; padding: 4px 6px; transition: background .15s; }
+  .bar-row:hover { background: #F0F4FF; }
+  .bar-row.active { background: #EBF5FF; outline: 2px solid #2E6DA4; }
   .bar-label { font-size: 12px; color: #555; width: 96px; flex-shrink: 0; }
   .bar-track { flex: 1; height: 8px; background: #F0F2F5; border-radius: 4px; overflow: hidden; }
-  .bar-fill  { height: 100%; border-radius: 4px; transition: width .4s ease; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
   .bar-count { font-size: 12px; font-weight: 600; color: #2C3E50; width: 28px; text-align: right; }
 
   /* Críticos */
   .ticket-list { display: flex; flex-direction: column; gap: 7px; }
-  .ticket-row {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 10px; border-radius: 8px;
-    border: 1px solid #EAECF0; background: #FAFAFA;
-  }
-  .ticket-row.crit-alto   { border-left: 3px solid #E74C3C; }
-  .ticket-row.crit-medio  { border-left: 3px solid #F39C12; }
-  .ticket-id    { font-size: 11px; color: #7F8C8D; min-width: 48px; font-weight: 600; }
+  .ticket-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #EAECF0; background: #FAFAFA; cursor: pointer; transition: all .15s; }
+  .ticket-row:hover { background: #F0F4FF; border-color: #2E6DA4; transform: translateX(2px); }
+  .ticket-row.crit-alto { border-left: 3px solid #E74C3C; }
+  .ticket-row.crit-medio { border-left: 3px solid #F39C12; }
+  .ticket-row.hidden { display: none; }
+  .ticket-id { font-size: 11px; color: #7F8C8D; min-width: 48px; font-weight: 600; }
   .ticket-title { font-size: 12px; color: #2C3E50; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ticket-dias  { font-size: 11px; color: #7F8C8D; white-space: nowrap; min-width: 40px; text-align: right; }
-
-  .st-badge {
-    font-size: 10px; padding: 2px 8px; border-radius: 999px;
-    font-weight: 600; white-space: nowrap;
-  }
-  .st-1 { background: #FDECEA; color: #C0392B; }
-  .st-2 { background: #EBF5FB; color: #2471A3; }
-  .st-4 { background: #FEF9E7; color: #B7770D; }
+  .ticket-dias { font-size: 11px; color: #7F8C8D; white-space: nowrap; min-width: 40px; text-align: right; }
+  .st-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+  .st-1 { background: #FDECEA; color: #C0392B; } .st-2 { background: #EBF5FB; color: #2471A3; } .st-4 { background: #FEF9E7; color: #B7770D; }
+  .glpi-link { font-size: 11px; color: #2E6DA4; text-decoration: none; white-space: nowrap; padding: 2px 6px; border-radius: 4px; border: 1px solid #D6E8F7; }
+  .glpi-link:hover { background: #EBF5FB; }
 
   /* Mini stats */
   .mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-  .mini-stat {
-    background: #F5F6FA; border-radius: 8px;
-    padding: 10px 12px;
-  }
+  .mini-stat { background: #F5F6FA; border-radius: 8px; padding: 10px 12px; }
   .mini-v { font-size: 20px; font-weight: 700; color: #2C3E50; }
   .mini-l { font-size: 11px; color: #7F8C8D; margin-top: 2px; }
-
-  /* Progress bar semana */
   .prog-wrap { margin-top: 4px; }
   .prog-label { display: flex; justify-content: space-between; font-size: 11px; color: #7F8C8D; margin-bottom: 5px; }
   .prog-track { height: 8px; background: #F0F2F5; border-radius: 4px; overflow: hidden; }
-  .prog-fill  { height: 100%; border-radius: 4px; background: #27AE60; transition: width .4s ease; }
+  .prog-fill { height: 100%; border-radius: 4px; background: #27AE60; transition: width .4s ease; }
 
   /* Tendências */
   .trend-section { margin-bottom: 1.5rem; }
-  .trend-title {
-    font-size: 13px; font-weight: 700; color: #1A3A5C;
-    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
-  }
-  .trend-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-  }
-  .trend-card {
-    background: #fff;
-    border-radius: 10px;
-    border: 1px solid #E4E7EF;
-    padding: 1.1rem 1.25rem;
-  }
-  .trend-card-title {
-    font-size: 11px; font-weight: 600; color: #7F8C8D;
-    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
-  }
-  .trend-empty {
-    font-size: 12px; color: #95A5A6; text-align: center;
-    padding: 2rem 1rem;
-  }
-  @media (max-width: 700px) {
-    .trend-grid { grid-template-columns: 1fr; }
-  }
+  .trend-title { font-size: 13px; font-weight: 700; color: #1A3A5C; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .trend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .trend-card { background: #fff; border-radius: 10px; border: 1px solid #E4E7EF; padding: 1.1rem 1.25rem; }
+  .trend-card-title { font-size: 11px; font-weight: 600; color: #7F8C8D; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
+  .trend-empty { font-size: 12px; color: #95A5A6; text-align: center; padding: 2rem 1rem; }
 
   /* Footer */
-  .footer {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; color: #95A5A6;
-    margin-top: 1rem; padding-top: 1rem;
-    border-top: 1px solid #E4E7EF;
-  }
+  .footer { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #95A5A6; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #E4E7EF; }
   .footer span { margin-left: auto; }
 
   /* Loading overlay */
-  .loading {
-    position: fixed; inset: 0; background: rgba(26,58,92,.92);
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 14px; z-index: 200;
-    color: #fff; font-size: 14px;
-  }
-  .spinner {
-    width: 36px; height: 36px;
-    border: 3px solid rgba(255,255,255,.25);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading { position: fixed; inset: 0; background: rgba(26,58,92,.92); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 200; color: #fff; font-size: 14px; }
+  .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
 
-  /* Responsive */
-  @media (max-width: 700px) {
-    .kpi-grid    { grid-template-columns: 1fr 1fr; }
-    .section-grid{ grid-template-columns: 1fr; }
-  }
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 1rem; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal { background: #fff; border-radius: 14px; width: 100%; max-width: 560px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); transform: translateY(20px); transition: transform .2s; }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #E4E7EF; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .modal-id { font-size: 12px; color: #7F8C8D; font-weight: 600; margin-bottom: 4px; }
+  .modal-titulo { font-size: 16px; font-weight: 700; color: #1A3A5C; line-height: 1.3; }
+  .modal-close { background: none; border: none; font-size: 22px; color: #95A5A6; cursor: pointer; padding: 0; flex-shrink: 0; line-height: 1; }
+  .modal-close:hover { color: #2C3E50; }
+  .modal-body { padding: 1.25rem 1.5rem; }
+  .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
+  .modal-field { background: #F5F6FA; border-radius: 8px; padding: 10px 12px; }
+  .modal-field-label { font-size: 10px; color: #7F8C8D; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+  .modal-field-value { font-size: 13px; font-weight: 600; color: #2C3E50; }
+  .modal-followups { margin-top: 1rem; }
+  .modal-followups-title { font-size: 11px; font-weight: 600; color: #7F8C8D; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+  .followup-item { border-left: 2px solid #D6E8F7; padding: 6px 10px; margin-bottom: 8px; }
+  .followup-data { font-size: 10px; color: #95A5A6; margin-bottom: 2px; }
+  .followup-txt { font-size: 12px; color: #2C3E50; line-height: 1.5; }
+  .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid #E4E7EF; display: flex; gap: 10px; justify-content: flex-end; }
+  .btn-primary { background: #1A3A5C; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-primary:hover { background: #2E6DA4; }
+  .btn-secondary { background: #F5F6FA; color: #2C3E50; border: 1px solid #E4E7EF; border-radius: 8px; padding: 8px 18px; font-size: 13px; cursor: pointer; }
+  .btn-secondary:hover { background: #E4E7EF; }
+  .modal-loading { text-align: center; padding: 2rem; color: #95A5A6; font-size: 13px; }
 
   .empty { font-size: 12px; color: #95A5A6; text-align: center; padding: 1rem; }
+
+  @media (max-width: 700px) {
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .section-grid { grid-template-columns: 1fr; }
+    .trend-grid { grid-template-columns: 1fr; }
+    .search-input { width: 140px; }
+    .search-input:focus { width: 160px; }
+  }
 </style>
 </head>
 <body>
@@ -198,6 +158,40 @@
 <div class="loading" id="loading">
   <div class="spinner"></div>
   <div>Carregando dados do GLPI...</div>
+</div>
+
+<!-- Modal de detalhes -->
+<div class="modal-overlay" id="modal-overlay" onclick="fecharModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-id" id="modal-id"></div>
+        <div class="modal-titulo" id="modal-titulo"></div>
+      </div>
+      <button class="modal-close" onclick="fecharModal(null, true)">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-loading" id="modal-loading">Carregando...</div>
+      <div id="modal-conteudo" style="display:none">
+        <div class="modal-grid">
+          <div class="modal-field"><div class="modal-field-label">Cliente</div><div class="modal-field-value" id="mf-cliente"></div></div>
+          <div class="modal-field"><div class="modal-field-label">Status</div><div class="modal-field-value" id="mf-status"></div></div>
+          <div class="modal-field"><div class="modal-field-label">Urgência</div><div class="modal-field-value" id="mf-urgencia"></div></div>
+          <div class="modal-field"><div class="modal-field-label">Dias em aberto</div><div class="modal-field-value" id="mf-dias"></div></div>
+          <div class="modal-field"><div class="modal-field-label">Aberto em</div><div class="modal-field-value" id="mf-criacao"></div></div>
+          <div class="modal-field"><div class="modal-field-label">Última atualização</div><div class="modal-field-value" id="mf-atualizacao"></div></div>
+        </div>
+        <div class="modal-followups">
+          <div class="modal-followups-title">Últimas interações</div>
+          <div id="mf-followups"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="fecharModal(null, true)">Fechar</button>
+      <a class="btn-primary" id="modal-glpi-link" href="#" target="_blank">Abrir no GLPI →</a>
+    </div>
+  </div>
 </div>
 
 <div class="topbar">
@@ -213,74 +207,63 @@
       <div class="topbar-sub" id="ts-atualizado">Carregando...</div>
     </div>
   </div>
-  <span class="badge-live"><span class="dot"></span>Atualiza a cada 5 min</span>
+  <div class="topbar-right">
+    <div class="search-wrap">
+      <svg class="search-icon" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input class="search-input" id="search-input" type="text" placeholder="Buscar chamado #ID" />
+    </div>
+    <button class="btn-refresh" id="btn-refresh" onclick="refreshManual()">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.36-3.36L23 10M1 14l5.13 4.36A9 9 0 0020.49 15"/></svg>
+      Atualizar
+    </button>
+    <span class="badge-live"><span class="dot"></span>5 min</span>
+  </div>
 </div>
 
 <div class="main">
 
+  <div class="filter-bar" id="filter-bar" style="display:none">
+    <span style="font-size:12px;color:#7F8C8D;">Filtro:</span>
+    <span class="filter-tag" id="filter-tag-text"></span>
+    <span style="font-size:11px;color:#95A5A6;">— mostrando apenas chamados deste cliente</span>
+  </div>
+
   <div class="kpi-grid">
-    <div class="kpi">
-      <div class="kpi-label">Em aberto agora</div>
-      <div class="kpi-value v-amber" id="kv-abertos">—</div>
-      <div class="kpi-sub">Status: Novo / Em andamento / Pendente</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Resolvidos hoje</div>
-      <div class="kpi-value v-green" id="kv-resolvidos">—</div>
-      <div class="kpi-sub" id="kv-resolvidos-sub">Atualizações de hoje</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Críticos (+3 dias)</div>
-      <div class="kpi-value v-red" id="kv-criticos">—</div>
-      <div class="kpi-sub">Em aberto há mais de 3 dias</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Taxa esta semana</div>
-      <div class="kpi-value v-blue" id="kv-taxa">—</div>
-      <div class="kpi-sub" id="kv-taxa-sub">Resolução / abertos</div>
-    </div>
+    <div class="kpi"><div class="kpi-label">Em aberto agora</div><div class="kpi-value v-amber" id="kv-abertos">—</div><div class="kpi-sub">Novo / Em andamento / Pendente</div></div>
+    <div class="kpi"><div class="kpi-label">Resolvidos hoje</div><div class="kpi-value v-green" id="kv-resolvidos">—</div><div class="kpi-sub" id="kv-resolvidos-sub">Atualizações de hoje</div></div>
+    <div class="kpi"><div class="kpi-label">Críticos (+3 dias)</div><div class="kpi-value v-red" id="kv-criticos">—</div><div class="kpi-sub">Em aberto há mais de 3 dias</div></div>
+    <div class="kpi"><div class="kpi-label">Taxa esta semana</div><div class="kpi-value v-blue" id="kv-taxa">—</div><div class="kpi-sub" id="kv-taxa-sub">Resolução / abertos</div></div>
   </div>
 
   <div class="section-grid">
-
     <div class="card">
-      <div class="card-title">Por cliente — em aberto</div>
+      <div class="card-title">Por cliente — em aberto <span style="font-weight:400;font-size:10px;color:#B0B8C1">(clique para filtrar)</span></div>
       <div id="bars-prod"></div>
     </div>
-
     <div class="card">
       <div class="card-title">Por tipo — em aberto</div>
       <div id="bars-tipo"></div>
     </div>
-
   </div>
 
   <div class="section-grid">
-
     <div class="card">
-      <div class="card-title">Críticos — sem resolução há mais de 3 dias</div>
+      <div class="card-title">Críticos — sem resolução há mais de 3 dias <span style="font-weight:400;font-size:10px;color:#B0B8C1">(clique para detalhes)</span></div>
       <div class="ticket-list" id="lista-criticos"></div>
     </div>
-
     <div class="card">
       <div class="card-title">Resumo da semana atual</div>
       <div class="mini-grid">
         <div class="mini-stat"><div class="mini-v" id="ms-total">—</div><div class="mini-l">Abertos na semana</div></div>
         <div class="mini-stat"><div class="mini-v" id="ms-resol">—</div><div class="mini-l">Resolvidos na semana</div></div>
-        <div class="mini-stat"><div class="mini-v v-blue"  id="ms-taxa">—</div><div class="mini-l">Taxa de resolução</div></div>
-        <div class="mini-stat"><div class="mini-v v-red"   id="ms-crit">—</div><div class="mini-l">Críticos abertos</div></div>
+        <div class="mini-stat"><div class="mini-v v-blue" id="ms-taxa">—</div><div class="mini-l">Taxa de resolução</div></div>
+        <div class="mini-stat"><div class="mini-v v-red" id="ms-crit">—</div><div class="mini-l">Críticos abertos</div></div>
       </div>
       <div class="prog-wrap">
-        <div class="prog-label">
-          <span>Progresso semanal</span>
-          <span id="prog-label-right">—</span>
-        </div>
-        <div class="prog-track">
-          <div class="prog-fill" id="prog-fill" style="width:0%"></div>
-        </div>
+        <div class="prog-label"><span>Progresso semanal</span><span id="prog-label-right">—</span></div>
+        <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
       </div>
     </div>
-
   </div>
 
   <div class="trend-section">
@@ -288,26 +271,15 @@
       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#1A3A5C" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       Tendências Históricas — últimas semanas
     </div>
-    <div id="trend-empty" class="trend-empty" style="display:none">
-      Histórico ainda sendo acumulado. Os gráficos aparecerão após a primeira semana completa.
-    </div>
+    <div id="trend-empty" class="trend-empty" style="display:none">Histórico ainda sendo acumulado. Os gráficos aparecerão após a primeira semana completa.</div>
     <div class="trend-grid" id="trend-grid">
-      <div class="trend-card">
-        <div class="trend-card-title">Volume de chamados por semana</div>
-        <canvas id="chart-volume" height="160"></canvas>
-      </div>
-      <div class="trend-card">
-        <div class="trend-card-title">Taxa de resolução % por semana</div>
-        <canvas id="chart-taxa" height="160"></canvas>
-      </div>
+      <div class="trend-card"><div class="trend-card-title">Volume de chamados por semana</div><canvas id="chart-volume" height="160"></canvas></div>
+      <div class="trend-card"><div class="trend-card-title">Taxa de resolução % por semana</div><canvas id="chart-taxa" height="160"></canvas></div>
     </div>
   </div>
 
   <div class="footer">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-      <path d="M3.51 9a9 9 0 0114.36-3.36L23 10M1 14l5.13 4.36A9 9 0 0020.49 15"/>
-    </svg>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.36-3.36L23 10M1 14l5.13 4.36A9 9 0 0020.49 15"/></svg>
     Dados via API GLPI — cache de 5 minutos · horário de Brasília (BRT)
     <span id="footer-ts"></span>
   </div>
@@ -315,85 +287,119 @@
 </div>
 
 <script>
-const COR_PROD = {
-  "Manserv":    "#378ADD",
-  "RecebeMais": "#1D9E75",
-  "Messiânica": "#7F77DD",
-  "Outros":     "#888780",
-};
-const COR_TIPO = {
-  "Erro":        "#E24B4A",
-  "Solicitação": "#378ADD",
-  "Wildlife":    "#1D9E75",
-  "Dúvida":      "#EF9F27",
-  "Melhoria":    "#7F77DD",
-  "Outros":      "#888780",
-};
-const ST_BADGE = {
-  "Novo":         '<span class="st-badge st-1">Novo</span>',
-  "Em andamento": '<span class="st-badge st-2">Em andamento</span>',
-  "Pendente":     '<span class="st-badge st-4">Pendente</span>',
-};
+const GLPI_BASE = "https://servicedesk.a7on.ai";
+const COR_PROD = { "Manserv":"#378ADD","RecebeMais":"#1D9E75","Messiânica":"#7F77DD","Outros":"#888780" };
+const COR_TIPO = { "Erro":"#E24B4A","Solicitação":"#378ADD","Wildlife":"#1D9E75","Dúvida":"#EF9F27","Melhoria":"#7F77DD","Outros":"#888780" };
+const ST_BADGE = { "Novo":'<span class="st-badge st-1">Novo</span>', "Em andamento":'<span class="st-badge st-2">Em andamento</span>', "Pendente":'<span class="st-badge st-4">Pendente</span>' };
 
-function renderBars(containerId, items, total, corMap) {
+let _dados = null;
+let filtroCliente = null;
+
+// ── Filtro por cliente ──────────────────────────────────────────────
+function setFiltro(cliente) {
+  if (filtroCliente === cliente) {
+    filtroCliente = null;
+  } else {
+    filtroCliente = cliente;
+  }
+  aplicarFiltro();
+}
+
+function aplicarFiltro() {
+  const bar = document.getElementById("filter-bar");
+  const tag = document.getElementById("filter-tag-text");
+
+  if (filtroCliente) {
+    bar.style.display = "flex";
+    tag.innerHTML = filtroCliente + ' <button onclick="limparFiltro()">×</button>';
+  } else {
+    bar.style.display = "none";
+  }
+
+  // Atualiza barras
+  document.querySelectorAll(".bar-row[data-cliente]").forEach(el => {
+    el.classList.toggle("active", el.dataset.cliente === filtroCliente);
+  });
+
+  // Filtra lista de críticos
+  document.querySelectorAll(".ticket-row[data-cliente]").forEach(el => {
+    if (!filtroCliente || el.dataset.cliente === filtroCliente) {
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
+  });
+}
+
+function limparFiltro() {
+  filtroCliente = null;
+  aplicarFiltro();
+}
+
+// ── Render barras ───────────────────────────────────────────────────
+function renderBars(containerId, items, total, corMap, comFiltro) {
   const el = document.getElementById(containerId);
   if (!items || !items.length) { el.innerHTML = '<div class="empty">Nenhum dado</div>'; return; }
   el.innerHTML = items.map(([label, qtd]) => {
     const pct = Math.round(qtd / total * 100);
     const cor = corMap[label] || "#888780";
-    return `
-      <div class="bar-row">
-        <span class="bar-label">${label}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor};"></div></div>
-        <span class="bar-count">${qtd}</span>
-      </div>`;
+    const dataAttr = comFiltro ? `data-cliente="${label}" onclick="setFiltro('${label}')"` : "";
+    const ativo = filtroCliente === label ? "active" : "";
+    return `<div class="bar-row ${ativo}" ${dataAttr}>
+      <span class="bar-label">${label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor};"></div></div>
+      <span class="bar-count">${qtd}</span>
+    </div>`;
   }).join("");
 }
 
+// ── Render críticos ─────────────────────────────────────────────────
 function renderCriticos(items) {
   const el = document.getElementById("lista-criticos");
-  if (!items || !items.length) {
-    el.innerHTML = '<div class="empty">Nenhum chamado crítico</div>';
-    return;
-  }
+  if (!items || !items.length) { el.innerHTML = '<div class="empty">Nenhum chamado crítico</div>'; return; }
   el.innerHTML = items.map(t => {
-    const cls = t.dias >= 7 ? "crit-alto" : "crit-medio";
+    const cls   = t.dias >= 7 ? "crit-alto" : "crit-medio";
     const badge = ST_BADGE[t.status_nome] || "";
-    return `
-      <div class="ticket-row ${cls}">
-        <span class="ticket-id">#${t.id}</span>
-        <span class="ticket-title">${t.titulo}</span>
-        <span class="ticket-dias">${t.dias}d</span>
-        ${badge}
-      </div>`;
+    const hidden = (filtroCliente && t.cliente !== filtroCliente) ? "hidden" : "";
+    return `<div class="ticket-row ${cls} ${hidden}" data-cliente="${t.cliente || ''}" onclick="abrirModal(${t.id})">
+      <span class="ticket-id">#${t.id}</span>
+      <span class="ticket-title">${t.titulo}</span>
+      <span class="ticket-dias">${t.dias}d</span>
+      ${badge}
+      <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
+    </div>`;
   }).join("");
 }
 
+// ── Aplicar dados ───────────────────────────────────────────────────
 function aplicar(d) {
-  document.getElementById("kv-abertos").textContent   = d.abertos;
+  _dados = d;
+  document.getElementById("kv-abertos").textContent    = d.abertos;
   document.getElementById("kv-resolvidos").textContent = d.resolvidos_hoje;
-  document.getElementById("kv-criticos").textContent  = d.criticos_count;
-  document.getElementById("kv-taxa").textContent      = d.taxa_semana + "%";
-  document.getElementById("kv-taxa-sub").textContent  = `${d.sem_resol} de ${d.sem_total} esta semana`;
-
+  document.getElementById("kv-criticos").textContent   = d.criticos_count;
+  document.getElementById("kv-taxa").textContent       = d.taxa_semana + "%";
+  document.getElementById("kv-taxa-sub").textContent   = `${d.sem_resol} de ${d.sem_total} esta semana`;
   document.getElementById("ms-total").textContent = d.sem_total;
   document.getElementById("ms-resol").textContent = d.sem_resol;
   document.getElementById("ms-taxa").textContent  = d.taxa_semana + "%";
   document.getElementById("ms-crit").textContent  = d.criticos_count;
-
   const prog = Math.min(d.taxa_semana, 100);
-  document.getElementById("prog-fill").style.width = prog + "%";
+  document.getElementById("prog-fill").style.width        = prog + "%";
   document.getElementById("prog-label-right").textContent = `${d.sem_resol} / ${d.sem_total}`;
-
-  document.getElementById("ts-atualizado").textContent = "Atualizado: " + d.atualizado;
-  document.getElementById("footer-ts").textContent = d.atualizado;
-
-  renderBars("bars-prod", d.por_prod, d.total_abertos_prod, COR_PROD);
-  renderBars("bars-tipo", d.por_tipo, d.total_abertos_prod, COR_TIPO);
+  document.getElementById("ts-atualizado").textContent    = "Atualizado: " + d.atualizado;
+  document.getElementById("footer-ts").textContent        = d.atualizado;
+  renderBars("bars-prod", d.por_prod, d.total_abertos_prod, COR_PROD, true);
+  renderBars("bars-tipo", d.por_tipo, d.total_abertos_prod, COR_TIPO, false);
   renderCriticos(d.criticos);
+  if (filtroCliente) aplicarFiltro();
 }
 
-async function carregar() {
+// ── Carregar dados ──────────────────────────────────────────────────
+async function carregar(manual) {
+  if (manual) {
+    const btn = document.getElementById("btn-refresh");
+    btn.classList.add("loading");
+  }
   try {
     const r = await fetch("/api/stats");
     if (!r.ok) throw new Error("Erro " + r.status);
@@ -404,13 +410,84 @@ async function carregar() {
   } catch (e) {
     console.error("Erro ao carregar stats:", e);
     const loading = document.getElementById("loading");
-    loading.innerHTML = `<div style="color:#F5A623;font-size:13px;">Erro ao conectar. Tentando novamente em 30s...</div>`;
-    setTimeout(carregar, 30000);
+    if (loading.style.display !== "none") {
+      loading.innerHTML = `<div style="color:#F5A623;font-size:13px;">Erro ao conectar. Tentando em 30s...</div>`;
+      setTimeout(carregar, 30000);
+    }
+  } finally {
+    document.getElementById("btn-refresh").classList.remove("loading");
   }
 }
 
+function refreshManual() { carregar(true); }
+
+// ── Modal ───────────────────────────────────────────────────────────
+async function abrirModal(tid) {
+  const overlay = document.getElementById("modal-overlay");
+  document.getElementById("modal-id").textContent     = `#${tid}`;
+  document.getElementById("modal-titulo").textContent = "Carregando...";
+  document.getElementById("modal-loading").style.display  = "block";
+  document.getElementById("modal-conteudo").style.display = "none";
+  document.getElementById("modal-glpi-link").href = `${GLPI_BASE}/front/ticket.form.php?id=${tid}`;
+  overlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+
+  try {
+    const r = await fetch(`/api/ticket/${tid}`);
+    const t = await r.json();
+    if (t.error) throw new Error(t.error);
+
+    document.getElementById("modal-titulo").textContent    = t.titulo;
+    document.getElementById("mf-cliente").textContent     = t.cliente;
+    document.getElementById("mf-status").textContent      = t.status;
+    document.getElementById("mf-urgencia").textContent    = t.urgencia;
+    document.getElementById("mf-dias").textContent        = t.dias + " dia(s)";
+    document.getElementById("mf-criacao").textContent     = t.criacao;
+    document.getElementById("mf-atualizacao").textContent = t.atualizacao;
+    document.getElementById("modal-glpi-link").href       = t.url;
+
+    const fEl = document.getElementById("mf-followups");
+    if (t.followups && t.followups.length) {
+      fEl.innerHTML = t.followups.map(f =>
+        `<div class="followup-item">
+          <div class="followup-data">${f.data}</div>
+          <div class="followup-txt">${f.conteudo || "(sem conteúdo)"}</div>
+        </div>`
+      ).join("");
+    } else {
+      fEl.innerHTML = '<div class="empty">Nenhuma interação registrada</div>';
+    }
+
+    document.getElementById("modal-loading").style.display  = "none";
+    document.getElementById("modal-conteudo").style.display = "block";
+  } catch (e) {
+    document.getElementById("modal-titulo").textContent = "Erro ao carregar";
+    document.getElementById("modal-loading").textContent = "Não foi possível carregar os detalhes.";
+  }
+}
+
+function fecharModal(evt, forcar) {
+  if (forcar || (evt && evt.target === document.getElementById("modal-overlay"))) {
+    document.getElementById("modal-overlay").classList.remove("open");
+    document.body.style.overflow = "";
+  }
+}
+
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharModal(null, true); });
+
+// ── Busca por ID ────────────────────────────────────────────────────
+document.getElementById("search-input").addEventListener("keydown", function(e) {
+  if (e.key !== "Enter") return;
+  const val = this.value.replace(/[^0-9]/g, "").trim();
+  if (!val) return;
+  abrirModal(parseInt(val));
+  this.value = "";
+  this.blur();
+});
+
+// ── Gráficos históricos ─────────────────────────────────────────────
 carregar();
-setInterval(carregar, 300000); // 5 minutos
+setInterval(carregar, 300000);
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -428,12 +505,10 @@ async function carregarHistorico() {
       document.getElementById("trend-grid").style.display  = "none";
       return;
     }
-
-    const labels    = dados.map(d => d.periodo);
-    const totais    = dados.map(d => d.total);
-    const resolvidos= dados.map(d => d.resolvidos);
-    const taxas     = dados.map(d => d.taxa);
-
+    const labels     = dados.map(d => d.periodo);
+    const totais     = dados.map(d => d.total);
+    const resolvidos = dados.map(d => d.resolvidos);
+    const taxas      = dados.map(d => d.taxa);
     const baseOpts = {
       responsive: true,
       plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } },
@@ -442,53 +517,34 @@ async function carregarHistorico() {
         y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: "#f0f2f5" } }
       }
     };
-
     if (chartVolume) chartVolume.destroy();
     chartVolume = new Chart(document.getElementById("chart-volume"), {
       type: "bar",
       data: {
         labels,
         datasets: [
-          { label: "Total",     data: totais,     backgroundColor: "rgba(37,99,235,0.18)", borderColor: "#2563eb", borderWidth: 2, borderRadius: 4 },
-          { label: "Resolvidos",data: resolvidos, backgroundColor: "rgba(22,163,74,0.18)",  borderColor: "#16a34a", borderWidth: 2, borderRadius: 4 },
+          { label: "Total",      data: totais,     backgroundColor: "rgba(37,99,235,0.18)", borderColor: "#2563eb", borderWidth: 2, borderRadius: 4 },
+          { label: "Resolvidos", data: resolvidos, backgroundColor: "rgba(22,163,74,0.18)",  borderColor: "#16a34a", borderWidth: 2, borderRadius: 4 },
         ]
       },
       options: baseOpts
     });
-
     if (chartTaxa) chartTaxa.destroy();
     chartTaxa = new Chart(document.getElementById("chart-taxa"), {
       type: "line",
       data: {
         labels,
-        datasets: [{
-          label: "Taxa de resolução %",
-          data: taxas,
-          borderColor: "#2563eb",
-          backgroundColor: "rgba(37,99,235,0.08)",
-          borderWidth: 2.5,
-          pointRadius: 4,
-          pointBackgroundColor: "#2563eb",
-          fill: true,
-          tension: 0.35,
-        }]
+        datasets: [{ label: "Taxa de resolução %", data: taxas, borderColor: "#2563eb", backgroundColor: "rgba(37,99,235,0.08)", borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: "#2563eb", fill: true, tension: 0.35 }]
       },
-      options: {
-        ...baseOpts,
-        scales: {
-          ...baseOpts.scales,
-          y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } }
-        }
-      }
+      options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } } } }
     });
-
   } catch(e) {
     console.warn("Histórico indisponível:", e);
   }
 }
 
 carregarHistorico();
-setInterval(carregarHistorico, 3600000); // 1 hora
+setInterval(carregarHistorico, 3600000);
 </script>
 </body>
 </html>

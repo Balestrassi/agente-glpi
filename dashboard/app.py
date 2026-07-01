@@ -196,6 +196,49 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/ticket/<int:tid>")
+def ticket_detail(tid):
+    import re
+    try:
+        tok = get_session()
+        try:
+            t = requests.get(f"{GLPI_URL}/apirest.php/Ticket/{tid}",
+                             headers=_h(tok), params={"expand_dropdowns": True}, timeout=15)
+            if t.status_code != 200:
+                return jsonify({"error": "Não encontrado"}), 404
+            t = t.json()
+            if not isinstance(t, dict) or "id" not in t:
+                return jsonify({"error": "Não encontrado"}), 404
+
+            fups_raw = api_get(f"Ticket/{tid}/ITILFollowup", tok,
+                               {"range": "0-5", "order": "DESC", "sort": "date_creation"})
+            status_map = {1:"Novo", 2:"Em andamento", 4:"Pendente", 5:"Resolvido", 6:"Fechado"}
+            urg_map    = {1:"Muito Baixa", 2:"Baixa", 3:"Média", 4:"Alta", 5:"Muito Alta"}
+            entidade   = (t.get("entities_id") or "").strip()
+            cliente    = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
+            fups = []
+            for f in (fups_raw if isinstance(fups_raw, list) else [])[:4]:
+                txt = re.sub(r"<[^>]+>", " ", f.get("content") or "").strip()
+                txt = (txt[:300] + "…") if len(txt) > 300 else txt
+                fups.append({"data": (f.get("date_creation") or "")[:16], "conteudo": txt})
+            return jsonify({
+                "id":          t["id"],
+                "titulo":      t.get("name", ""),
+                "cliente":     cliente,
+                "status":      status_map.get(t.get("status"), "?"),
+                "urgencia":    urg_map.get(t.get("urgency"), "?"),
+                "criacao":     (t.get("date_creation") or "")[:16],
+                "atualizacao": (t.get("date_mod") or "")[:16],
+                "dias":        dias_aberto(t.get("date_creation", "")),
+                "followups":   fups,
+                "url":         _link(t["id"]),
+            })
+        finally:
+            close_session(tok)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/stats")
 def stats():
     global _cache
