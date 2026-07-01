@@ -9,6 +9,7 @@ import time
 import threading
 import requests
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify, render_template, request
 
 try:
@@ -33,8 +34,11 @@ SHEET_NAME       = "Histórico Semanal"
 CACHE_TTL        = 300  # 5 minutos
 
 _hist_cache = {"ts": 0, "data": None}
-
-_cache = {"ts": 0, "data": None}
+_cache      = {"ts": 0, "data": None}
+_tec_cache  = {"ts": 0, "data": None}
+_nomes_cache = {}
+PERIODOS_DIA = ["Madrugada", "Manhã", "Tarde", "Noite"]
+DIAS_SEMANA  = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 
 def _h(tok=None):
@@ -113,6 +117,13 @@ def dias_aberto(criacao_str):
         return 0
 
 
+def periodo_do_dia(hora):
+    if hora < 6:  return 0  # Madrugada
+    if hora < 12: return 1  # Manhã
+    if hora < 18: return 2  # Tarde
+    return 3                 # Noite
+
+
 def calcular():
     tok = get_session()
     try:
@@ -136,6 +147,7 @@ def calcular():
         por_tipo        = {}
         sem_total       = 0
         sem_resol       = 0
+        heatmap         = [[0] * 4 for _ in range(7)]  # [dia_semana][periodo]
 
         for t in tickets:
             if not eh_recebemai(t):
@@ -149,11 +161,18 @@ def calcular():
 
             prod = produto(t)
             tp   = tipo(nome)
+            cli  = produto(t)
 
             if criacao >= inicio_semana:
                 sem_total += 1
                 if status in (5, 6):
                     sem_resol += 1
+
+            try:
+                dt_criacao = datetime.strptime(criacao[:19], "%Y-%m-%d %H:%M:%S")
+                heatmap[dt_criacao.weekday()][periodo_do_dia(dt_criacao.hour)] += 1
+            except Exception:
+                pass
 
             if status in (1, 2, 4):
                 abertos += 1
@@ -166,6 +185,7 @@ def calcular():
                         "status_nome": {1: "Novo", 2: "Em andamento", 4: "Pendente"}.get(status, "?"),
                         "status":      status,
                         "dias":        dias_aberto(criacao),
+                        "cliente":     cli,
                     })
             elif status in (5, 6):
                 if data_mod.startswith(hoje_str):
@@ -178,7 +198,7 @@ def calcular():
             "abertos":          abertos,
             "resolvidos_hoje":  resolvidos_hoje,
             "criticos_count":   len(criticos),
-            "criticos":         criticos[:8],
+            "criticos":         criticos[:50],
             "por_prod":         sorted(por_prod.items(), key=lambda x: x[1], reverse=True),
             "por_tipo":         sorted(por_tipo.items(), key=lambda x: x[1], reverse=True),
             "total_abertos_prod": total_abertos_prod,
@@ -186,6 +206,9 @@ def calcular():
             "sem_resol":        sem_resol,
             "taxa_semana":      round(sem_resol / sem_total * 100) if sem_total else 0,
             "atualizado":       agora.strftime("%d/%m/%Y %H:%M") + " BRT",
+            "heatmap":          heatmap,
+            "heatmap_dias":     DIAS_SEMANA,
+            "heatmap_periodos": PERIODOS_DIA,
         }
     finally:
         close_session(tok)
@@ -237,6 +260,139 @@ def ticket_detail(tid):
             close_session(tok)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/periodo")
+def periodo_customizado():
+    inicio = request.args.get("inicio", "")
+    fim    = request.args.get("fim", "")
+    try:
+        datetime.strptime(inicio, "%Y-%m-%d")
+        datetime.strptime(fim, "%Y-%m-%d")
+    except Exception:
+        return jsonify({"error": "Datas inválidas. Use formato YYYY-MM-DD"}), 400
+
+    data_ini = f"{inicio} 00:00:00"
+    data_fim = f"{fim} 23:59:59"
+
+    tok = get_session()
+    try:
+        total, resol, por_prod = 0, 0, {}
+        offset = 0
+        while True:
+            lote = api_get("Ticket", tok, {
+                "expand_dropdowns": True,
+                "range": f"{offset}-{offset+99}",
+                "sort": "date_creation", "order": "DESC",
+            })
+            if not lote:
+                break
+            parou = False
+            for t in lote:
+                dc = t.get("date_creation") or ""
+                if dc > data_fim:
+                    continue
+                if dc < data_ini:
+                    parou = True
+                    break
+                if not eh_recebemai(t):
+                    continue
+                total += 1
+                if t.get("status") in (5, 6):
+                    resol += 1
+                prod = produto(t)
+                por_prod[prod] = por_prod.get(prod, 0) + 1
+            if parou or len(lote) < 100:
+                break
+            offset += 100
+
+        return jsonify({
+            "inicio": inicio, "fim": fim,
+            "total": total, "resolvidos": resol,
+            "taxa": round(resol / total * 100) if total else 0,
+            "por_prod": sorted(por_prod.items(), key=lambda x: x[1], reverse=True),
+        })
+    finally:
+        close_session(tok)
+
+
+def _nome_usuario(tok, uid):
+    if uid in _nomes_cache:
+        return _nomes_cache[uid]
+    try:
+        u = requests.get(f"{GLPI_URL}/apirest.php/User/{uid}", headers=_h(tok), timeout=10).json()
+        nome = f"{u.get('firstname','')} {u.get('realname','')}".strip() or u.get("name", f"Usuário {uid}")
+    except Exception:
+        nome = f"Usuário {uid}"
+    _nomes_cache[uid] = nome
+    return nome
+
+
+def _tecnico_do_ticket(tok, tid):
+    try:
+        r = requests.get(f"{GLPI_URL}/apirest.php/Ticket/{tid}/Ticket_User",
+                         headers=_h(tok), timeout=10)
+        if r.status_code not in (200, 206):
+            return None
+        for assoc in r.json():
+            if assoc.get("type") == 2:  # 2 = técnico atribuído
+                return assoc.get("users_id")
+        return None
+    except Exception:
+        return None
+
+
+def buscar_ranking_tecnicos():
+    tok = get_session()
+    try:
+        tickets = api_get("Ticket", tok, {
+            "expand_dropdowns": True, "range": "0-199",
+            "sort": "date_creation", "order": "DESC",
+        })
+        abertos = [t for t in tickets if eh_recebemai(t) and t.get("status") in (1, 2, 4)]
+
+        resultados = {}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            uids = list(ex.map(lambda t: _tecnico_do_ticket(tok, t["id"]), abertos))
+
+        for t, uid in zip(abertos, uids):
+            if not uid:
+                chave = "_sem_tecnico"
+            else:
+                chave = uid
+            if chave not in resultados:
+                resultados[chave] = {"uid": uid, "tickets": []}
+            resultados[chave]["tickets"].append({
+                "id": t["id"], "titulo": (t.get("name") or "")[:60],
+                "dias": dias_aberto(t.get("date_creation", "")),
+            })
+
+        ranking = []
+        for chave, info in resultados.items():
+            nome = "Sem técnico atribuído" if chave == "_sem_tecnico" else _nome_usuario(tok, info["uid"])
+            ranking.append({
+                "nome": nome,
+                "count": len(info["tickets"]),
+                "tickets": sorted(info["tickets"], key=lambda x: x["dias"], reverse=True),
+            })
+        ranking.sort(key=lambda x: x["count"], reverse=True)
+        return ranking
+    finally:
+        close_session(tok)
+
+
+@app.route("/api/tecnicos")
+def tecnicos():
+    global _tec_cache
+    now = time.time()
+    if _tec_cache["data"] is None or now - _tec_cache["ts"] > 600:  # cache 10 min
+        try:
+            _tec_cache["data"] = buscar_ranking_tecnicos()
+            _tec_cache["ts"]   = now
+        except Exception as e:
+            if _tec_cache["data"] is None:
+                return jsonify({"error": str(e)}), 500
+    return jsonify(_tec_cache["data"])
 
 
 @app.route("/api/stats")
