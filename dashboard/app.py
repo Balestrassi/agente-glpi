@@ -37,7 +37,11 @@ CACHE_TTL        = 300  # 5 minutos
 _hist_cache = {"ts": 0, "data": None}
 _cache      = {"ts": 0, "data": None}
 _tec_cache  = {"ts": 0, "data": None}
+_hist_lock  = threading.Lock()
+_cache_lock = threading.Lock()
+_tec_lock   = threading.Lock()
 _nomes_cache = {}
+MAX_DIAS_PERIODO = 180  # limite para /api/periodo evitar consultas gigantes
 PERIODOS_DIA = ["Madrugada", "Manhã", "Tarde", "Noite"]
 DIAS_SEMANA  = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
@@ -268,10 +272,15 @@ def periodo_customizado():
     inicio = request.args.get("inicio", "")
     fim    = request.args.get("fim", "")
     try:
-        datetime.strptime(inicio, "%Y-%m-%d")
-        datetime.strptime(fim, "%Y-%m-%d")
+        dt_inicio = datetime.strptime(inicio, "%Y-%m-%d")
+        dt_fim    = datetime.strptime(fim, "%Y-%m-%d")
     except Exception:
         return jsonify({"error": "Datas inválidas. Use formato YYYY-MM-DD"}), 400
+
+    if dt_fim < dt_inicio:
+        return jsonify({"error": "Data final anterior à data inicial"}), 400
+    if (dt_fim - dt_inicio).days > MAX_DIAS_PERIODO:
+        return jsonify({"error": f"Período máximo permitido: {MAX_DIAS_PERIODO} dias"}), 400
 
     data_ini = f"{inicio} 00:00:00"
     data_fim = f"{fim} 23:59:59"
@@ -352,10 +361,23 @@ def buscar_ranking_tecnicos():
         })
         abertos = [t for t in tickets if eh_recebemai(t) and t.get("status") in (1, 2, 4)]
 
-        resultados = {}
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            uids = list(ex.map(lambda t: _tecnico_do_ticket(tok, t["id"]), abertos))
+        # Cada thread usa sua própria sessão do GLPI — evitar reuso concorrente
+        # de um único Session-Token, que pode gerar respostas inconsistentes.
+        N_WORKERS = min(6, len(abertos)) or 1
+        sessoes = [get_session() for _ in range(N_WORKERS)]
+        try:
+            def buscar_com_sessao(idx_t):
+                idx, t = idx_t
+                sessao_thread = sessoes[idx % N_WORKERS]
+                return _tecnico_do_ticket(sessao_thread, t["id"])
 
+            with ThreadPoolExecutor(max_workers=N_WORKERS) as ex:
+                uids = list(ex.map(buscar_com_sessao, enumerate(abertos)))
+        finally:
+            for s in sessoes:
+                close_session(s)
+
+        resultados = {}
         for t, uid in zip(abertos, uids):
             if not uid:
                 chave = "_sem_tecnico"
@@ -387,12 +409,15 @@ def tecnicos():
     global _tec_cache
     now = time.time()
     if _tec_cache["data"] is None or now - _tec_cache["ts"] > 600:  # cache 10 min
-        try:
-            _tec_cache["data"] = buscar_ranking_tecnicos()
-            _tec_cache["ts"]   = now
-        except Exception as e:
-            if _tec_cache["data"] is None:
-                return jsonify({"error": str(e)}), 500
+        with _tec_lock:
+            # Reconfere dentro do lock: outra requisição pode ter recalculado enquanto esperávamos
+            if _tec_cache["data"] is None or now - _tec_cache["ts"] > 600:
+                try:
+                    _tec_cache["data"] = buscar_ranking_tecnicos()
+                    _tec_cache["ts"]   = time.time()
+                except Exception as e:
+                    if _tec_cache["data"] is None:
+                        return jsonify({"error": str(e)}), 500
     return jsonify(_tec_cache["data"])
 
 
@@ -401,13 +426,14 @@ def stats():
     global _cache
     now = time.time()
     if _cache["data"] is None or now - _cache["ts"] > CACHE_TTL:
-        try:
-            _cache["data"] = calcular()
-            _cache["ts"]   = now
-        except Exception as e:
-            if _cache["data"]:
-                return jsonify(_cache["data"])
-            return jsonify({"error": str(e)}), 500
+        with _cache_lock:
+            if _cache["data"] is None or now - _cache["ts"] > CACHE_TTL:
+                try:
+                    _cache["data"] = calcular()
+                    _cache["ts"]   = time.time()
+                except Exception as e:
+                    if not _cache["data"]:
+                        return jsonify({"error": str(e)}), 500
     return jsonify(_cache["data"])
 
 
@@ -454,8 +480,10 @@ def historico():
     global _hist_cache
     now = time.time()
     if _hist_cache["data"] is None or now - _hist_cache["ts"] > 3600:  # cache 1h
-        _hist_cache["data"] = buscar_historico()
-        _hist_cache["ts"]   = now
+        with _hist_lock:
+            if _hist_cache["data"] is None or now - _hist_cache["ts"] > 3600:
+                _hist_cache["data"] = buscar_historico()
+                _hist_cache["ts"]   = time.time()
     return jsonify(_hist_cache["data"])
 
 
