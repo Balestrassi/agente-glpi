@@ -246,7 +246,9 @@ def ticket_detail(tid):
             cliente    = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
             fups = []
             for f in (fups_raw if isinstance(fups_raw, list) else [])[:4]:
-                txt = re.sub(r"<[^>]+>", " ", f.get("content") or "").strip()
+                bruto = html.unescape(f.get("content") or "")
+                sem_tags = re.sub(r"<[^>]+>", " ", bruto)
+                txt = re.sub(r"\s+", " ", sem_tags).strip()
                 txt = (txt[:300] + "…") if len(txt) > 300 else txt
                 fups.append({"data": (f.get("date_creation") or "")[:16], "conteudo": txt})
             return jsonify({
