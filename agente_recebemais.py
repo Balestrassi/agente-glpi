@@ -150,6 +150,23 @@ def ja_tem_primeiro_atendimento(session_token, chamado_id):
     return False
 
 
+def chamado_e_recente(chamado, horas=2):
+    """
+    Retorna True só se o chamado foi CRIADO há poucas horas.
+    Evita tratar como "novo" um chamado antigo que apenas voltou ao
+    status "Novo" (ex: cliente respondeu e o GLPI reabriu automaticamente).
+    """
+    criado_em = chamado.get("date_creation", "")
+    if not criado_em:
+        return True
+    try:
+        criado = datetime.strptime(criado_em[:19], "%Y-%m-%d %H:%M:%S")
+        agora_brt = datetime.now(BRASILIA).replace(tzinfo=None)
+        return (agora_brt - criado).total_seconds() < horas * 3600
+    except Exception:
+        return True
+
+
 def processar_novo_chamado(session_token, chamado):
     chamado_id = chamado["id"]
     titulo = html.unescape(chamado.get("name", "Sem titulo") or "Sem titulo")
@@ -248,7 +265,9 @@ def main():
     # Processa chamados novos
     for chamado in novos:
         cid = chamado["id"]
-        if ja_tem_primeiro_atendimento(session, cid):
+        if not chamado_e_recente(chamado):
+            print(f"  Chamado #{cid} voltou a 'Novo' mas foi criado há mais tempo — provável reabertura, não é chamado novo. Ignorando primeiro atendimento.")
+        elif ja_tem_primeiro_atendimento(session, cid):
             print(f"  Chamado #{cid} já tem primeiro atendimento — adicionando ao cache sem reenviar")
         else:
             processar_novo_chamado(session, chamado)
