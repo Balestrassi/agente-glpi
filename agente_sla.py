@@ -9,6 +9,7 @@ escalonados no grupo Telegram:
 
 import os
 import json
+import html
 import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -183,7 +184,7 @@ def main():
 
         for t in tickets_abertos:
             tid    = t.get("id")
-            nome   = t.get("name", "")
+            nome   = html.unescape(t.get("name", "") or "")
             status = t.get("status")
             criacao = t.get("date_creation") or t.get("date", "")
 

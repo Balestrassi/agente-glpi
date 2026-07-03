@@ -10,6 +10,7 @@ Quando reabre: remove do cache (evita re-alertar se fechar e abrir de novo).
 
 import os
 import json
+import html
 import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -60,7 +61,7 @@ def eh_recebemai(ticket):
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
 
 def cliente(ticket):
-    entidade = (ticket.get("entities_id") or "").strip()
+    entidade = html.unescape((ticket.get("entities_id") or "").strip())
     if not entidade:
         return "?"
     partes = [p.strip() for p in entidade.split(">")]
@@ -124,7 +125,7 @@ def main():
         for t in tickets_rm:
             tid     = str(t["id"])
             status  = t.get("status")
-            titulo  = t.get("name", "")
+            titulo  = html.unescape(t.get("name", "") or "")
             cli     = cliente(t)
             dm      = t.get("date_mod") or ""
 

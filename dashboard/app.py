@@ -158,7 +158,7 @@ def calcular():
             if not eh_recebemai(t):
                 continue
 
-            nome     = t.get("name", "")
+            nome     = html.unescape(t.get("name", "") or "")
             status   = t.get("status")
             criacao  = t.get("date_creation") or t.get("date", "")
             data_mod = t.get("date_mod", "")
@@ -253,7 +253,7 @@ def ticket_detail(tid):
                 fups.append({"data": (f.get("date_creation") or "")[:16], "conteudo": txt})
             return jsonify({
                 "id":          t["id"],
-                "titulo":      t.get("name", ""),
+                "titulo":      html.unescape(t.get("name", "") or ""),
                 "cliente":     cliente,
                 "status":      status_map.get(t.get("status"), "?"),
                 "urgencia":    urg_map.get(t.get("urgency"), "?"),
@@ -575,7 +575,7 @@ def bot_chamado(chat_id, arg):
         urg_map    = {1:"Muito Baixa",2:"Baixa",3:"Média",4:"Alta",5:"Muito Alta"}
         entidade   = html.unescape((t.get("entities_id") or "").strip())
         cli        = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
-        titulo     = (t.get("name") or "Sem título").replace("_","\\_").replace("*","\\*")
+        titulo     = html.unescape(t.get("name") or "Sem título").replace("_","\\_").replace("*","\\*")
         criacao    = (t.get("date_creation") or "")[:16]
         linhas = [
             f"📌 *Chamado \\#{tid}*",
@@ -611,7 +611,7 @@ def bot_cliente(chat_id, arg):
             return
         linhas = [f"🏢 *{arg.title()} — {len(abertos)} chamado(s) aberto(s)*", ""]
         for t in abertos[:8]:
-            titulo = (t.get("name") or "")[:50]
+            titulo = html.unescape(t.get("name") or "")[:50]
             dc     = (t.get("date_creation") or "")[:10]
             try:
                 dias = (datetime.now(BRASILIA).replace(tzinfo=None) -

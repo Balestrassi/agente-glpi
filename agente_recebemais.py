@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import requests
 import html
 from datetime import datetime, timedelta, timezone
@@ -151,7 +152,7 @@ def ja_tem_primeiro_atendimento(session_token, chamado_id):
 
 def processar_novo_chamado(session_token, chamado):
     chamado_id = chamado["id"]
-    titulo = chamado.get("name", "Sem titulo")
+    titulo = html.unescape(chamado.get("name", "Sem titulo") or "Sem titulo")
     criado_em = chamado.get("date_creation", "")
     solicitante = chamado.get("users_id_recipient", "Desconhecido")
 
@@ -175,7 +176,7 @@ def processar_novo_chamado(session_token, chamado):
 
 def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
     chamado_id = chamado["id"]
-    titulo = chamado.get("name", "Sem titulo")
+    titulo = html.unescape(chamado.get("name", "Sem titulo") or "Sem titulo")
 
     followups = buscar_followups(session_token, chamado_id)
     if not followups:
@@ -202,8 +203,9 @@ def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
             if not followup_eh_recente(followup, minutos=10):
                 print(f"  Followup #{followup['id']} ignorado — criado há mais de 10 min (anti-duplicata)")
                 continue
-            conteudo_html = followup.get("content", "")
-            conteudo = html.unescape(conteudo_html).replace("<p>", "").replace("</p>", " ").replace("<br>", " ").strip()
+            conteudo_html = html.unescape(followup.get("content", "") or "")
+            conteudo = re.sub(r"<[^>]+>", " ", conteudo_html)
+            conteudo = re.sub(r"\s+", " ", conteudo).strip()
             conteudo = conteudo[:200] + "..." if len(conteudo) > 200 else conteudo
 
             mensagem = (
