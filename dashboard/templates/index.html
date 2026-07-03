@@ -390,6 +390,13 @@
 
 <script>
 const GLPI_BASE = "https://servicedesk.a7on.ai";
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str == null ? "" : String(str);
+  return div.innerHTML;
+}
+
 const COR_PROD = { "Manserv":"#378ADD","RecebeMais":"#1D9E75","Messiânica":"#7F77DD","Outros":"#888780" };
 const COR_TIPO = { "Erro":"#E24B4A","Solicitação":"#378ADD","Wildlife":"#1D9E75","Dúvida":"#EF9F27","Melhoria":"#7F77DD","Outros":"#888780" };
 const ST_BADGE = { "Novo":'<span class="st-badge st-1">Novo</span>', "Em andamento":'<span class="st-badge st-2">Em andamento</span>', "Pendente":'<span class="st-badge st-4">Pendente</span>' };
@@ -440,7 +447,7 @@ function aplicarFiltro() {
   const tag = document.getElementById("filter-tag-text");
   if (filtroCliente) {
     bar.style.display = "flex";
-    tag.innerHTML = filtroCliente + ' <button onclick="limparFiltro()">×</button>';
+    tag.innerHTML = escapeHtml(filtroCliente) + ' <button onclick="limparFiltro()">×</button>';
   } else {
     bar.style.display = "none";
   }
@@ -465,10 +472,11 @@ function renderBars(containerId, items, total, corMap, comFiltro) {
   el.innerHTML = items.map(([label, qtd]) => {
     const pct = Math.round(qtd / total * 100);
     const cor = corMap[label] || "#888780";
-    const dataAttr = comFiltro ? `data-cliente="${label}" onclick="setFiltro('${label}')"` : "";
+    const labelSeg = escapeHtml(label).replace(/'/g, "\\'");
+    const dataAttr = comFiltro ? `data-cliente="${escapeHtml(label)}" onclick="setFiltro('${labelSeg}')"` : "";
     const ativo = filtroCliente === label ? "active" : "";
     return `<div class="bar-row ${ativo}" ${dataAttr}>
-      <span class="bar-label">${label}</span>
+      <span class="bar-label">${escapeHtml(label)}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor};"></div></div>
       <span class="bar-count">${qtd}</span>
     </div>`;
@@ -491,9 +499,9 @@ function renderCriticos(items) {
   el.innerHTML = filtrados.map(t => {
     const cls   = t.dias >= 7 ? "crit-alto" : "crit-medio";
     const badge = ST_BADGE[t.status_nome] || "";
-    return `<div class="ticket-row ${cls}" data-cliente="${t.cliente || ''}" onclick="abrirModal(${t.id})">
+    return `<div class="ticket-row ${cls}" data-cliente="${escapeHtml(t.cliente || '')}" onclick="abrirModal(${t.id})">
       <span class="ticket-id">#${t.id}</span>
-      <span class="ticket-title">${t.titulo}</span>
+      <span class="ticket-title">${escapeHtml(t.titulo)}</span>
       <span class="ticket-dias">${t.dias}d</span>
       ${badge}
       <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
@@ -647,8 +655,8 @@ async function abrirModal(tid) {
     tl.innerHTML = items.map(it => `
       <div class="timeline-item">
         <div class="timeline-dot ${it.origem ? 'origem' : ''}"></div>
-        <div class="timeline-data">${it.data}</div>
-        <div class="timeline-txt">${it.txt}</div>
+        <div class="timeline-data">${escapeHtml(it.data)}</div>
+        <div class="timeline-txt">${escapeHtml(it.txt)}</div>
       </div>`).join("");
 
     document.getElementById("modal-loading").style.display  = "none";
@@ -693,9 +701,9 @@ async function carregarTecnicos() {
       const iniciais = t.nome.split(" ").filter(Boolean).slice(0,2).map(p => p[0]).join("").toUpperCase();
       return `<div>
         <div class="tec-row" onclick="toggleChamadosTecnico(${idx})">
-          <div class="tec-avatar">${iniciais || "?"}</div>
+          <div class="tec-avatar">${escapeHtml(iniciais || "?")}</div>
           <div class="tec-info">
-            <div class="tec-nome">${t.nome}</div>
+            <div class="tec-nome">${escapeHtml(t.nome)}</div>
             <div class="tec-sub">${t.count} chamado(s) em aberto</div>
           </div>
           <div class="tec-count">${t.count}</div>
@@ -719,7 +727,7 @@ function toggleChamadosTecnico(idx) {
       const cls = tk.dias >= 7 ? "crit-alto" : (tk.dias >= 3 ? "crit-medio" : "");
       return `<div class="ticket-row ${cls}" onclick="event.stopPropagation(); abrirModal(${tk.id})">
         <span class="ticket-id">#${tk.id}</span>
-        <span class="ticket-title">${tk.titulo}</span>
+        <span class="ticket-title">${escapeHtml(tk.titulo)}</span>
         <span class="ticket-dias">${tk.dias}d</span>
         <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${tk.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
       </div>`;

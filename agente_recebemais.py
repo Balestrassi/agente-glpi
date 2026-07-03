@@ -63,27 +63,36 @@ def close_session(session_token):
     )
 
 
+def eh_recebemai(ticket):
+    """Mesma regra usada em agente_sla.py, agente_reaberturas.py, relatorio_automatico.py
+    e dashboard/app.py — mantida idêntica para que um chamado seja tratado de forma
+    consistente por todos os agentes (evita chamados aparecerem em uns e não em outros)."""
+    entidade  = (ticket.get("entities_id")       or "").lower()
+    categoria = (ticket.get("itilcategories_id") or "").lower()
+    return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
+
+
 def buscar_chamados_recebemais(session_token):
-    r = requests.get(
-        f"{GLPI_URL}/apirest.php/Ticket",
-        headers={"App-Token": APP_TOKEN, "Session-Token": session_token},
-        params={
-            "searchText[status]": 1,
-            "expand_dropdowns": True,
-            "range": "0-99",
-            "order": "DESC",
-            "sort": "date_creation",
-        },
-    )
-    data = r.json()
-    if not isinstance(data, list):
-        return []
-    return [
-        c for c in data
-        if "recebe" in str(c.get("entities_id", "")).lower()
-        or "recebemais" in str(c.get("name", "")).lower()
-        or "recebemais" in str(c.get("itilcategories_id", "")).lower()
-    ]
+    """Busca chamados Recebe Mais em qualquer status aberto (Novo, Em andamento,
+    Pendente) — necessário para continuar monitorando respostas do cliente mesmo
+    depois que o técnico tira o chamado do status 'Novo'."""
+    chamados = []
+    for status in (1, 2, 4):
+        r = requests.get(
+            f"{GLPI_URL}/apirest.php/Ticket",
+            headers={"App-Token": APP_TOKEN, "Session-Token": session_token},
+            params={
+                "searchText[status]": status,
+                "expand_dropdowns": True,
+                "range": "0-99",
+                "order": "DESC",
+                "sort": "date_creation",
+            },
+        )
+        data = r.json()
+        if isinstance(data, list):
+            chamados.extend(data)
+    return [c for c in chamados if eh_recebemai(c)]
 
 
 def buscar_followups(session_token, chamado_id):
@@ -265,7 +274,10 @@ def main():
     # Processa chamados novos
     for chamado in novos:
         cid = chamado["id"]
-        if not chamado_e_recente(chamado):
+        status = chamado.get("status")
+        if status != 1:
+            print(f"  Chamado #{cid} visto pela primeira vez já em status {status} (não é 'Novo') — registrado sem primeiro atendimento.")
+        elif not chamado_e_recente(chamado):
             print(f"  Chamado #{cid} voltou a 'Novo' mas foi criado há mais tempo — provável reabertura, não é chamado novo. Ignorando primeiro atendimento.")
         elif ja_tem_primeiro_atendimento(session, cid):
             print(f"  Chamado #{cid} já tem primeiro atendimento — adicionando ao cache sem reenviar")
