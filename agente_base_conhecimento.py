@@ -5,22 +5,27 @@ Para cada chamado novo (status=1), busca chamados similares já resolvidos
 e posta uma sugestão privada visível apenas para técnicos.
 """
 
-import os
 import json
 import re
-import requests
 import html
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-BRASILIA = timezone(timedelta(hours=-3))
+from glpi_api import get_session, close_session, api_get, api_post
 
 # ── Configuração ──────────────────────────────────────────────────────
-GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
-APP_TOKEN  = os.environ.get("GLPI_APP_TOKEN",  "wXhcZYF5NcwtQWxLwWHlYC2UUlmCOMTxrJ0Q8Ryl")
-USER_TOKEN = os.environ.get("GLPI_USER_TOKEN", "J2wAo6d8GXQ0WAVxeUXsmOJwBfMVty8qtXA8HNpj")
+# Credenciais ficam em variáveis de ambiente ou no arquivo .env (ver glpi_api.py).
 
-JANELA_MINUTOS  = 120   # janela ampla (2h) para cobrir delays do GitHub Actions
+# GLPI grava datas em horário de Brasília; usar sempre este fuso torna o
+# agente correto em qualquer máquina (Task Scheduler local ou runner UTC).
+BRASILIA = timezone(timedelta(hours=-3))
+
+def agora_brt() -> datetime:
+    return datetime.now(BRASILIA).replace(tzinfo=None)
+
+JANELA_MINUTOS  = 180   # 3h: folga para delays de cron (GitHub Actions atrasa
+                        # até ~30 min). Janela maior é segura: deduplicação via
+                        # processados.json e ja_tem_sugestao_ia impede repetição.
 MAX_SIMILARES   = 3     # quantos chamados similares mostrar
 CHARS_SOLUCAO   = 350   # tamanho máximo do texto de solução por chamado
 
@@ -49,43 +54,6 @@ FORM_LABELS = {
     'nenhum', 'documento', 'anexado', 'anexo',
 }
 
-# ── Sessão GLPI ───────────────────────────────────────────────────────
-def get_session():
-    r = requests.get(
-        f"{GLPI_URL}/apirest.php/initSession",
-        headers={"Authorization": f"user_token {USER_TOKEN}", "App-Token": APP_TOKEN},
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()["session_token"]
-
-def close_session(tok):
-    requests.get(
-        f"{GLPI_URL}/apirest.php/killSession",
-        headers={"App-Token": APP_TOKEN, "Session-Token": tok},
-        timeout=10,
-    )
-
-def api_get(path, tok, params=None):
-    r = requests.get(
-        f"{GLPI_URL}/apirest.php/{path}",
-        headers={"App-Token": APP_TOKEN, "Session-Token": tok},
-        params=params,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
-
-def api_post(path, tok, body):
-    r = requests.post(
-        f"{GLPI_URL}/apirest.php/{path}",
-        headers={"App-Token": APP_TOKEN, "Session-Token": tok, "Content-Type": "application/json"},
-        json=body,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
-
 # ── Utilitários ───────────────────────────────────────────────────────
 def carregar_processados():
     if PROCESSADOS_FILE.exists():
@@ -93,6 +61,12 @@ def carregar_processados():
     return set()
 
 def salvar_processados(ids: set):
+    # Poda IDs antigos: o agente só olha chamados criados nas últimas horas,
+    # então guardar os ~500 IDs mais recentes é mais que suficiente (evita
+    # que o arquivo cresça indefinidamente).
+    if ids:
+        corte = max(ids) - 500
+        ids = {i for i in ids if i >= corte}
     PROCESSADOS_FILE.write_text(
         json.dumps(sorted(ids), ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -197,12 +171,11 @@ def ja_tem_sugestao_ia(tok, chamado_id: int) -> bool:
 # ── Lógica principal ──────────────────────────────────────────────────
 def buscar_chamados_novos(tok) -> list:
     """Retorna chamados criados na janela de tempo (qualquer status aberto).
-    Janela ampla (2h) para cobrir delays do GitHub Actions (cron pode atrasar até 30 min).
+    Janela ampla (3h) para cobrir delays de cron; horário sempre em fuso de Brasília.
     Não filtra por status pois o primeiro atendimento automático pode mudar o status de
     Novo (1) para Em andamento (2) antes deste agente rodar.
     Deduplicação feita pelo processados.json — sem risco de sugestão duplicada."""
-    # GLPI armazena datas em BRT (UTC-3) — usar BRT aqui para a comparação ser correta
-    limite = (datetime.now(BRASILIA).replace(tzinfo=None) - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
+    limite = (agora_brt() - timedelta(minutes=JANELA_MINUTOS)).strftime("%Y-%m-%d %H:%M:%S")
     try:
         tickets = api_get("Ticket", tok, {
             "expand_dropdowns": True,
@@ -223,21 +196,15 @@ def buscar_chamados_novos(tok) -> list:
         print(f"  [!] Erro ao buscar chamados novos: {e}")
         return []
 
-def _eh_recebemai_entidade(entidade_str: str) -> bool:
-    """Verifica se a entidade (string expandida) pertence ao universo Recebe Mais."""
-    return "recebe mais" in (entidade_str or "").lower()
-
 def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, entity: str = None) -> list:
-    """Busca chamados similares por título E descrição.
-    Aceita qualquer cliente Recebe Mais (não exige entidade idêntica),
-    mas dá bônus de score para o mesmo cliente."""
+    """Busca chamados similares por título E descrição, filtrando pela mesma entidade (cliente)."""
     kw_titulo = extrair_keywords(titulo)
     kw_desc   = kw_descricao or []
 
     if not kw_titulo and not kw_desc:
         return []
 
-    limite_data = (datetime.now(BRASILIA).replace(tzinfo=None) - timedelta(days=90)).strftime("%Y-%m-%d")
+    limite_data = (agora_brt() - timedelta(days=90)).strftime("%Y-%m-%d")
     encontrados = {}
 
     def registrar(t, score):
@@ -245,19 +212,14 @@ def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, ent
             return
         if (t.get("date_creation") or "") < limite_data:
             return
-        # Aceita qualquer entidade Recebe Mais (não exige match exato)
-        entidade_similar = t.get("entities_id") or ""
-        if not _eh_recebemai_entidade(entidade_similar):
+        # Filtrar pela mesma entidade (mesmo cliente)
+        if entity and t.get("entities_id") != entity:
             return
-        # Bônus: mesmo cliente tem peso maior
-        score_final = score
-        if entity and entidade_similar == entity:
-            score_final += 1
         tid = t["id"]
         if tid in encontrados:
-            encontrados[tid]["_score"] += score_final
+            encontrados[tid]["_score"] += score
         else:
-            t["_score"] = score_final
+            t["_score"] = score
             encontrados[tid] = t
 
     # Busca por título (peso 2)
@@ -299,18 +261,26 @@ def buscar_similares_resolvidos(tok, titulo: str, kw_descricao: list = None, ent
     )
     return similares[:MAX_SIMILARES]
 
-def obter_ultima_solucao(tok, chamado_id: int, solicitante_id) -> str:
-    """Extrai o último comentário do técnico (não do solicitante)."""
+def obter_solucao(tok, chamado_id: int) -> str:
+    """Busca a solução oficial do chamado (ITILSolution) — é o texto registrado
+    ao resolver o ticket, muito mais confiável que 'último comentário'.
+    Fallback: último acompanhamento, para chamados encerrados sem solução formal."""
+    try:
+        solucoes = api_get(f"Ticket/{chamado_id}/ITILSolution", tok)
+        if isinstance(solucoes, list) and solucoes:
+            texto = limpar_html(solucoes[-1].get("content", ""))
+            if texto:
+                return texto[:CHARS_SOLUCAO] + ("..." if len(texto) > CHARS_SOLUCAO else "")
+    except Exception:
+        pass
     try:
         acomps = api_get(f"Ticket/{chamado_id}/ITILFollowup", tok)
-        if not isinstance(acomps, list) or not acomps:
-            return ""
-        tecnicos = [a for a in acomps if str(a.get("users_id")) != str(solicitante_id)]
-        fonte = tecnicos[-1] if tecnicos else acomps[-1]
-        texto = limpar_html(fonte.get("content", ""))
-        return texto[:CHARS_SOLUCAO] + ("..." if len(texto) > CHARS_SOLUCAO else "")
+        if isinstance(acomps, list) and acomps:
+            texto = limpar_html(acomps[-1].get("content", ""))
+            return texto[:CHARS_SOLUCAO] + ("..." if len(texto) > CHARS_SOLUCAO else "")
     except Exception:
-        return ""
+        pass
+    return ""
 
 def formatar_sugestao_html(similares_com_solucao: list) -> str:
     """Monta o HTML da sugestão privada."""
@@ -322,7 +292,7 @@ def formatar_sugestao_html(similares_com_solucao: list) -> str:
     ]
     for s in similares_com_solucao:
         tid     = s["id"]
-        titulo  = limpar_html(s.get("titulo", s.get("name", "")))
+        titulo  = limpar_html(s.get("name", ""))
         solucao = s.get("_solucao", "Sem solução registrada.")
         data    = (s.get("date_mod") or "")[:10]
         linhas += [
@@ -388,21 +358,19 @@ def main():
 
             similares = buscar_similares_resolvidos(tok, titulo, kw_desc, entity=entity)
             if not similares:
-                print(f"    Nenhum similar encontrado — será tentado novamente na próxima execução")
-                # Não marca como processado: tenta de novo na próxima rodada.
-                # Evita marcar permanentemente quando a busca retorna vazia por falta de histórico.
+                print(f"    Nenhum similar encontrado, marcando como processado")
+                processados.add(tid)
                 continue
 
-            # Busca a solução de cada similar
-            solicitante = ticket.get("users_id_recipient") or ""
+            # Busca a solução oficial de cada similar
             for s in similares:
-                solucao = obter_ultima_solucao(tok, s["id"], solicitante)
+                solucao = obter_solucao(tok, s["id"])
                 s["_solucao"] = solucao or "Sem solução registrada."
                 print(f"    Similar #{s['id']} — solução: {solucao[:60]}...")
 
             html_sugestao = formatar_sugestao_html(similares)
             postar_sugestao_privada(tok, tid, html_sugestao)
-            print(f"    ✓ Sugestão privada postada no chamado #{tid}")
+            print(f"    Sugestão privada postada no chamado #{tid}")
 
             processados.add(tid)
 

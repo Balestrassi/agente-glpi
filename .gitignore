@@ -1,0 +1,11 @@
+# Credenciais locais — nunca versionar
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Artefatos locais
+*.pdf
+ids_vistos.json
+base_conhecimento_processados.json

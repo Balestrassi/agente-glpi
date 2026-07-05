@@ -19,10 +19,10 @@ from reportlab.platypus import (
     HRFlowable, PageBreak
 )
 
-# ── Credenciais ───────────────────────────────────────────────────────
-GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
-APP_TOKEN  = os.environ.get("GLPI_APP_TOKEN",  "wXhcZYF5NcwtQWxLwWHlYC2UUlmCOMTxrJ0Q8Ryl")
-USER_TOKEN = os.environ.get("GLPI_USER_TOKEN", "J2wAo6d8GXQ0WAVxeUXsmOJwBfMVty8qtXA8HNpj")
+# ── Credenciais (via ambiente/Secrets — nunca hardcoded) ──────────────
+GLPI_URL   = os.environ.get("GLPI_URL", "https://servicedesk.a7on.ai")
+APP_TOKEN  = os.environ["GLPI_APP_TOKEN"]
+USER_TOKEN = os.environ["GLPI_USER_TOKEN"]
 
 # ── Período: semana anterior seg-dom ─────────────────────────────────
 hoje         = datetime.utcnow()
