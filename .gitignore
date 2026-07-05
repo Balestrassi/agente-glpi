@@ -5,7 +5,10 @@
 __pycache__/
 *.pyc
 
-# Artefatos locais
+# Artefatos locais / estado dos agentes (persistidos via actions/cache)
 *.pdf
 ids_vistos.json
 base_conhecimento_processados.json
+anomalias_alertadas.json
+reaberturas_cache.json
+sla_alertados.json

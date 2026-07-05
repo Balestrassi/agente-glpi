@@ -335,6 +335,13 @@
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:1.5rem;">
+      <div class="card-title">⏰ Radar SLA — abertos sem movimentação
+        <span class="card-title-hint">horas corridas desde a última atualização · alertas do agente: 24h / 48h / 72h</span>
+      </div>
+      <div class="ticket-list" id="lista-parados"></div>
+    </div>
+
   </div>
 
   <!-- ── ABA: POR TÉCNICO ─────────────────────────────────────────── -->
@@ -390,6 +397,31 @@
 
 <script>
 const GLPI_BASE = "https://servicedesk.a7on.ai";
+
+// ── Autenticação por token ──────────────────────────────────────────
+// Se o servidor tem DASHBOARD_TOKEN configurado, as rotas /api/* exigem
+// o header X-Dashboard-Token. O token é pedido uma vez e fica no navegador.
+function getDashToken() { return localStorage.getItem("dash_token") || ""; }
+function pedirToken(msg) {
+  const t = prompt(msg || "🔒 Este dashboard é protegido.\nInforme o token de acesso:");
+  if (t && t.trim()) {
+    localStorage.setItem("dash_token", t.trim());
+    location.reload();
+  } else {
+    const loading = document.getElementById("loading");
+    loading.style.display = "flex";
+    loading.innerHTML = '<div style="font-size:14px;">🔒 Acesso restrito — recarregue a página para informar o token.</div>';
+  }
+}
+async function api(url) {
+  const r = await fetch(url, { headers: { "X-Dashboard-Token": getDashToken() } });
+  if (r.status === 401) {
+    localStorage.removeItem("dash_token");
+    pedirToken("🔒 Token ausente ou inválido.\nInforme o token de acesso:");
+    throw new Error("unauthorized");
+  }
+  return r;
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");
@@ -573,7 +605,33 @@ function aplicar(d) {
   renderBars("bars-prod", d.por_prod, d.total_abertos_prod, COR_PROD, true);
   renderBars("bars-tipo", d.por_tipo, d.total_abertos_prod, COR_TIPO, false);
   renderCriticos(d.criticos);
+  renderParados(d.parados || []);
   renderHeatmap(d.heatmap, d.heatmap_dias, d.heatmap_periodos);
+}
+
+// ── Radar SLA (abertos sem movimentação) ────────────────────────────
+function renderParados(items) {
+  const el = document.getElementById("lista-parados");
+  if (!el) return;
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="empty">✅ Nenhum chamado parado há mais de 12h</div>';
+    return;
+  }
+  el.innerHTML = items.map(t => {
+    // Escala de risco alinhada aos alertas do agente SLA (24/48/72h)
+    const cls   = t.horas >= 48 ? "crit-alto" : (t.horas >= 24 ? "crit-medio" : "");
+    const risco = t.horas >= 72 ? "🔴" : (t.horas >= 48 ? "🚨" : (t.horas >= 24 ? "⚠️" : "·"));
+    const badge = ST_BADGE[t.status_nome] || "";
+    const hTxt  = t.horas >= 48 ? (Math.round(t.horas / 24 * 10) / 10) + "d" : t.horas + "h";
+    return `<div class="ticket-row ${cls}" data-cliente="${escapeHtml(t.cliente || '')}" onclick="abrirModal(${t.id})">
+      <span style="min-width:18px;text-align:center;">${risco}</span>
+      <span class="ticket-id">#${t.id}</span>
+      <span class="ticket-title">${escapeHtml(t.titulo)}</span>
+      <span class="ticket-dias" title="sem movimentação">${hTxt}</span>
+      ${badge}
+      <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
+    </div>`;
+  }).join("");
 }
 
 // ── Heatmap ─────────────────────────────────────────────────────────
@@ -604,7 +662,7 @@ function renderHeatmap(heatmap, dias, periodos) {
 async function carregar(manual) {
   if (manual) document.getElementById("btn-refresh").classList.add("loading");
   try {
-    const r = await fetch("/api/stats");
+    const r = await api("/api/stats");
     if (!r.ok) throw new Error("Erro " + r.status);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -635,7 +693,7 @@ async function abrirModal(tid) {
   document.body.style.overflow = "hidden";
 
   try {
-    const r = await fetch(`/api/ticket/${tid}`);
+    const r = await api(`/api/ticket/${tid}`);
     const t = await r.json();
     if (t.error) throw new Error(t.error);
 
@@ -691,7 +749,7 @@ async function carregarTecnicos() {
   const el = document.getElementById("lista-tecnicos");
   el.innerHTML = '<div class="empty">Carregando ranking de técnicos (pode levar alguns segundos)...</div>';
   try {
-    const r = await fetch("/api/tecnicos");
+    const r = await api("/api/tecnicos");
     const ranking = await r.json();
     if (ranking.error) throw new Error(ranking.error);
     _tecnicosCarregados = true;
@@ -783,7 +841,7 @@ async function consultarPeriodo() {
   document.getElementById("pr-resol").textContent = "...";
   document.getElementById("pr-taxa").textContent  = "...";
   try {
-    const r = await fetch(`/api/periodo?inicio=${inicio}&fim=${fim}`);
+    const r = await api(`/api/periodo?inicio=${inicio}&fim=${fim}`);
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     document.getElementById("pr-total").textContent = d.total;
@@ -800,7 +858,7 @@ let chartTaxa   = null;
 
 async function carregarHistorico() {
   try {
-    const r = await fetch("/api/historico");
+    const r = await api("/api/historico");
     if (!r.ok) return;
     const dados = await r.json();
     renderComparativo(dados);
@@ -840,7 +898,25 @@ async function carregarHistorico() {
   }
 }
 
-carregar();
+// ── Tendência no KPI de taxa (vs última semana registrada) ──────────
+async function tendenciaKpi() {
+  try {
+    const r = await api("/api/historico");
+    if (!r.ok) return;
+    const hist = await r.json();
+    if (!hist || !hist.length) return;
+    const ultima = hist[hist.length - 1];
+    const sub = document.getElementById("kv-taxa-sub");
+    if (!sub || !_dados) return;
+    const diff = _dados.taxa_semana - ultima.taxa;
+    const seta = Math.abs(diff) < 1 ? "↔" : (diff > 0 ? "↑" : "↓");
+    const cor  = Math.abs(diff) < 1 ? "var(--muted2)" : (diff > 0 ? "#27AE60" : "#E74C3C");
+    sub.innerHTML = escapeHtml(sub.textContent) +
+      ` · <span style="color:${cor};font-weight:600;">${seta} ${Math.abs(diff).toFixed(0)}pp vs sem. passada</span>`;
+  } catch (e) { /* histórico indisponível — sem tendência */ }
+}
+
+carregar().then(tendenciaKpi);
 setInterval(carregar, 300000);
 </script>
 

@@ -164,11 +164,12 @@ def requester_numeric_id(tok, tid):
         return None
 
 def ultimo_tecnico_completo(tok, tid, requester_id):
-    """Retorna (date_str, user_id) do último followup feito pelo técnico."""
+    """Retorna (ultima_data, user_id, primeira_data) dos followups do técnico.
+    primeira_data alimenta a métrica FRT (tempo de primeira resposta)."""
     try:
         followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
         if not isinstance(followups, list):
-            return None, None
+            return None, None, None
         tecnico = [
             f for f in followups
             if f.get("users_id") != requester_id
@@ -176,11 +177,13 @@ def ultimo_tecnico_completo(tok, tid, requester_id):
             and "Obrigado pelo seu contato" not in (f.get("content") or "")
         ]
         if not tecnico:
-            return None, None
-        ult = tecnico[-1]
-        return ult.get("date") or ult.get("date_creation"), ult.get("users_id")
+            return None, None, None
+        ult, prim = tecnico[-1], tecnico[0]
+        return (ult.get("date") or ult.get("date_creation"),
+                ult.get("users_id"),
+                prim.get("date") or prim.get("date_creation"))
     except Exception:
-        return None, None
+        return None, None, None
 
 _nomes_cache = {}
 def buscar_nome_usuario(tok, user_id):
@@ -237,6 +240,17 @@ def fmt_hu(h):
     dias = h / H_DIA
     if dias < 1.05: return f"{h:.1f} h úteis"
     return f"{dias:.1f} dias úteis"
+
+def media_l(valores):
+    return sum(valores) / len(valores) if valores else 0.0
+
+def percentil(valores, p):
+    """Percentil p (0-100) por posto mais próximo. P50 = mediana."""
+    if not valores:
+        return 0.0
+    s = sorted(valores)
+    k = round(p / 100 * (len(s) - 1))
+    return s[max(0, min(len(s) - 1, k))]
 
 def delta_str(atual, anterior):
     """Retorna string de variação ex: '+12%' ou '-5%'."""
@@ -597,6 +611,115 @@ def em_aberto(story, nao_resolvidos):
         rows, [1.5*cm,7.5*cm,2.5*cm,3*cm,2.5*cm],
         hbg=AMARELO))
 
+# ── Distribuição dos tempos (média × mediana × P90) ──────────────────
+def distribuicao(story, tempos, frt_list):
+    """Média sozinha esconde outliers — mediana é o caso típico e P90 o
+    pior cenário usual. FRT = tempo até a primeira resposta do técnico."""
+    story += section("Distribuição dos Tempos (média × mediana × P90)")
+    ciclos   = [hc for hc, _, _, _ in tempos]
+    tecnicos = [ht for _, ht, _, _ in tempos]
+    rows = [
+        ("Tempo Técnico", fmt_hu(media_l(tecnicos)),
+         fmt_hu(percentil(tecnicos, 50)), fmt_hu(percentil(tecnicos, 90))),
+        ("Tempo Total",   fmt_hu(media_l(ciclos)),
+         fmt_hu(percentil(ciclos, 50)),   fmt_hu(percentil(ciclos, 90))),
+    ]
+    if frt_list:
+        rows.append(("Primeira Resposta (FRT)", fmt_hu(media_l(frt_list)),
+                     fmt_hu(percentil(frt_list, 50)), fmt_hu(percentil(frt_list, 90))))
+    story.append(styled_tbl(["Métrica", "Média", "Mediana (P50)", "P90"],
+                             rows, [5.5*cm, 3.8*cm, 3.8*cm, 3.8*cm]))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "Leitura: a <b>mediana</b> é o caso típico (metade resolve mais rápido); "
+        "o <b>P90</b> é o pior cenário usual (só 10% demoram mais). "
+        "<b>FRT</b> = criação até o primeiro comentário do técnico.",
+        S("leg", fontName="Helvetica-Oblique", fontSize=8,
+          textColor=colors.HexColor("#7F8C8D"), leading=12)))
+
+# ── Reaberturas do período (métrica opcional, via Google Sheets) ──────
+def contar_reaberturas_periodo():
+    """Conta as reaberturas registradas pelo agente_reaberturas na aba
+    'Reaberturas' dentro do período do relatório. Retorna None se a
+    planilha não estiver configurada — a seção simplesmente não aparece."""
+    gj  = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    sid = os.environ.get("SPREADSHEET_ID", "")
+    if not gj or not sid:
+        return None
+    try:
+        import json as _json
+        import gspread
+        from google.oauth2.service_account import Credentials
+        creds = Credentials.from_service_account_info(
+            _json.loads(gj),
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"],
+        )
+        gc   = gspread.authorize(creds)
+        ws   = gc.open_by_key(sid).worksheet("Reaberturas")
+        rows = ws.get_all_values()[1:]  # pula cabeçalho
+        ini, fim = DATA_INI[:10], DATA_FIM[:10]
+        return sum(1 for r in rows if r and r[0] and ini <= r[0][:10] <= fim)
+    except Exception as e:
+        print(f"  [!] Métrica de reaberturas indisponível: {e}")
+        return None
+
+# ── Resumo executivo com IA (opcional) ────────────────────────────────
+def gerar_resumo_ia(contexto: str) -> str:
+    """Gera parágrafo de análise executiva via API do Claude.
+    Opcional: requer o secret ANTHROPIC_API_KEY e o pacote 'anthropic'.
+    Sem a chave, retorna vazio e o relatório sai sem a seção."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return ""
+    try:
+        import anthropic
+    except ImportError:
+        print("  [!] Pacote 'anthropic' não instalado — resumo IA pulado.")
+        return ""
+    try:
+        client = anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=600,
+            system=(
+                "Você é um analista de operações de suporte técnico. A partir das "
+                "métricas semanais fornecidas, escreva um resumo executivo de 3 a 5 "
+                "frases, em português, voltado a gerentes. Destaque a variação vs a "
+                "semana anterior, onde o volume se concentrou e pontos de atenção. "
+                "Tom objetivo e factual. Use apenas os números fornecidos — não "
+                "invente dados. Responda com um único parágrafo corrido, sem "
+                "markdown, sem listas e sem título."
+            ),
+            messages=[{"role": "user", "content": contexto}],
+        )
+        texto = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if texto:
+            print("  Resumo executivo IA gerado.")
+        return texto
+    except Exception as e:
+        print(f"  [!] Resumo IA indisponível: {e}")
+        return ""
+
+def resumo_executivo(story, texto):
+    story += section("Resumo Executivo")
+    box = Table([[Paragraph(texto, S("re", fontName="Helvetica", fontSize=9.5,
+                                     textColor=PRETO, leading=14))]],
+                colWidths=[17*cm])
+    box.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#EBF5FB")),
+        ("BOX",           (0, 0), (-1, -1), 1, AZUL_MED),
+        ("TOPPADDING",    (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+    ]))
+    story.append(box)
+    story.append(Paragraph(
+        "Análise gerada por IA (Claude) a partir das métricas do período.",
+        S("ia", fontName="Helvetica-Oblique", fontSize=7.5,
+          textColor=colors.HexColor("#7F8C8D"))))
+    story.append(Spacer(1, 8))
+
 # ── Telegram ─────────────────────────────────────────────────────────
 def enviar_telegram(pdf_bytes):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -668,9 +791,10 @@ def main():
         RANKING  = {}   # {user_id: {nome, count, tempos}}
         resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, _, st, prod in TICKETS if st in (5, 6)]
         for i, (tid, criacao, prod) in enumerate(resolvidos):
-            req_id          = requester_numeric_id(tok2, tid)
-            ult_data, uid   = ultimo_tecnico_completo(tok2, tid, req_id)
-            DADOS[tid]      = {"criacao": criacao, "ultimo_tecnico": ult_data, "tecnico_id": uid}
+            req_id                   = requester_numeric_id(tok2, tid)
+            ult_data, uid, prim_data = ultimo_tecnico_completo(tok2, tid, req_id)
+            DADOS[tid] = {"criacao": criacao, "ultimo_tecnico": ult_data,
+                          "tecnico_id": uid, "primeiro_tecnico": prim_data}
             if uid:
                 if uid not in RANKING:
                     RANKING[uid] = {"nome": "", "count": 0,
@@ -690,6 +814,7 @@ def main():
     por_prod   = {}
     por_tipo_d = {}
     tempos     = []
+    frt_list   = []   # tempo até a primeira resposta do técnico (horas úteis)
     nao_resolvidos = []
 
     for tid, titulo, criacao, atualizacao, urg, st, prod in TICKETS:
@@ -704,6 +829,9 @@ def main():
             ult_tec    = d.get("ultimo_tecnico")
             h_tecnico  = horas_uteis(dt_criacao, ult_tec) if ult_tec else h_ciclo
             tempos.append((h_ciclo, h_tecnico, prod, tp))
+            prim_tec = d.get("primeiro_tecnico")
+            if prim_tec:
+                frt_list.append(horas_uteis(dt_criacao, prim_tec))
             uid = d.get("tecnico_id")
             if uid and uid in RANKING:
                 RANKING[uid]["tempos_tecnico"].append(h_tecnico)
@@ -751,6 +879,33 @@ def main():
     print(f"  Tempo técnico médio: {fmt_hu(TEMPO_GERAL_TECNICO)}")
     print(f"  Tempo ciclo médio:   {fmt_hu(TEMPO_GERAL_CICLO)}")
 
+    # Reaberturas da semana (opcional — depende da planilha Google)
+    n_reab = contar_reaberturas_periodo()
+    if n_reab is not None:
+        print(f"  Reaberturas no período: {n_reab}")
+
+    # Resumo executivo com IA (opcional — só roda se ANTHROPIC_API_KEY existir)
+    top_prod = sorted(por_prod.items(),   key=lambda x: -x[1])[:4]
+    top_tipo = sorted(por_tipo_d.items(), key=lambda x: -x[1])[:4]
+    contexto_ia = (
+        f"Período: {PERIODO}. Total de chamados: {TOTAL}. "
+        f"Resolvidos/fechados: {RESOL} (taxa {TAXA_RESOL}%). "
+        f"Ainda em aberto: {len(nao_resolvidos)}. "
+        f"Semana anterior ({PERIODO_ANT}): {comp['total']} chamados, taxa {comp['taxa']}%. "
+        f"Volume por cliente: {', '.join(f'{n}: {q}' for n, q in top_prod)}. "
+        f"Volume por tipo: {', '.join(f'{n}: {q}' for n, q in top_tipo)}. "
+        f"Tempo técnico: média {fmt_hu(TEMPO_GERAL_TECNICO)}, "
+        f"mediana {fmt_hu(percentil([ht for _, ht, _, _ in tempos], 50)) if tempos else 'n/d'}, "
+        f"P90 {fmt_hu(percentil([ht for _, ht, _, _ in tempos], 90)) if tempos else 'n/d'}. "
+        f"Tempo total de ciclo: média {fmt_hu(TEMPO_GERAL_CICLO)}. "
+        + (f"Primeira resposta (FRT): média {fmt_hu(media_l(frt_list))}, "
+           f"mediana {fmt_hu(percentil(frt_list, 50))}. " if frt_list else "")
+        + (f"Reaberturas na semana: {n_reab} "
+           f"(taxa {round(n_reab / RESOL * 100)}% dos resolvidos). "
+           if n_reab is not None and RESOL else "")
+    )
+    resumo_ia = gerar_resumo_ia(contexto_ia)
+
     # Gera PDF
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
@@ -758,14 +913,25 @@ def main():
                             topMargin=1.8*cm, bottomMargin=1.2*cm)
     story = []
     capa(story, TOTAL, TAXA_RESOL)
+    if resumo_ia:
+        resumo_executivo(story, resumo_ia)
     visao_geral(story, TOTAL, RESOL, TAXA_RESOL, por_status, por_prod,
                 por_tipo_d, nao_resolvidos, comp)
+    if n_reab is not None:
+        taxa_reab = f" ({round(n_reab / RESOL * 100)}% dos resolvidos)" if RESOL else ""
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            f"<b>Reaberturas na semana: {n_reab}</b>{taxa_reab} — chamados que "
+            "voltaram a aberto após serem resolvidos. Reabertura é o principal "
+            "termômetro de qualidade da solução.",
+            S("reab", fontName="Helvetica", fontSize=9, textColor=PRETO, leading=13)))
     if tempos:
         tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico,
                     tp_tipo_ciclo, tp_tipo_tecnico,
                     TEMPO_GERAL_CICLO, TEMPO_GERAL_TECNICO,
                     TEMPO_PROD_CICLO, TEMPO_PROD_TECNICO,
                     TEMPO_TIPO_CICLO, TEMPO_TIPO_TECNICO)
+        distribuicao(story, tempos, frt_list)
     if ranking_final:
         ranking_tecnicos(story, ranking_final)
     if nao_resolvidos:

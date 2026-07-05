@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests reportlab
+        run: pip install requests reportlab anthropic gspread google-auth
 
       - name: Gerar e enviar relatório
         env:
@@ -28,4 +28,9 @@ jobs:
           GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Opcional: habilita o Resumo Executivo gerado por IA no PDF
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Opcional: métrica de reaberturas (mesma planilha do histórico)
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: python relatorio_automatico.py

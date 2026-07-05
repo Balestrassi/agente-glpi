@@ -34,6 +34,13 @@ SHEET_ID         = os.environ.get("SPREADSHEET_ID",          "")
 SHEET_NAME       = "Histórico Semanal"
 CACHE_TTL        = 300  # 5 minutos
 
+# Token de acesso ao dashboard (defina DASHBOARD_TOKEN no Render).
+# Sem ele definido o dashboard fica aberto — compatibilidade retroativa.
+DASHBOARD_TOKEN  = os.environ.get("DASHBOARD_TOKEN", "")
+
+# Radar SLA: chamados abertos sem movimentação há mais de X horas
+SLA_RADAR_HORAS  = 12
+
 _hist_cache = {"ts": 0, "data": None}
 _cache      = {"ts": 0, "data": None}
 _tec_cache  = {"ts": 0, "data": None}
@@ -44,6 +51,20 @@ _nomes_cache = {}
 MAX_DIAS_PERIODO = 180  # limite para /api/periodo evitar consultas gigantes
 PERIODOS_DIA = ["Madrugada", "Manhã", "Tarde", "Noite"]
 DIAS_SEMANA  = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+
+@app.before_request
+def _exigir_token():
+    """Protege as rotas de API com DASHBOARD_TOKEN.
+    O webhook do Telegram tem validação própria (chat autorizado)."""
+    if not DASHBOARD_TOKEN:
+        return
+    if not request.path.startswith("/api/"):
+        return
+    enviado = (request.headers.get("X-Dashboard-Token")
+               or request.args.get("token") or "")
+    if enviado != DASHBOARD_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
 
 
 def _h(tok=None):
@@ -148,11 +169,13 @@ def calcular():
         abertos         = 0
         resolvidos_hoje = 0
         criticos        = []
+        parados         = []   # radar SLA: abertos sem movimentação
         por_prod        = {}
         por_tipo        = {}
         sem_total       = 0
         sem_resol       = 0
         heatmap         = [[0] * 4 for _ in range(7)]  # [dia_semana][periodo]
+        agora_naive     = agora.replace(tzinfo=None)
 
         for t in tickets:
             if not eh_recebemai(t):
@@ -183,6 +206,22 @@ def calcular():
                 abertos += 1
                 por_prod[prod] = por_prod.get(prod, 0) + 1
                 por_tipo[tp]   = por_tipo.get(tp, 0) + 1
+                # Radar SLA: horas desde a última movimentação (qualquer update)
+                try:
+                    ref = data_mod or criacao
+                    dt_ref = datetime.strptime(ref[:19], "%Y-%m-%d %H:%M:%S")
+                    horas_parado = (agora_naive - dt_ref).total_seconds() / 3600
+                except Exception:
+                    horas_parado = 0
+                if horas_parado >= SLA_RADAR_HORAS:
+                    parados.append({
+                        "id":          tid,
+                        "titulo":      (nome[:50] + "…") if len(nome) > 50 else nome,
+                        "cliente":     cli,
+                        "status_nome": {1: "Novo", 2: "Em andamento", 4: "Pendente"}.get(status, "?"),
+                        "status":      status,
+                        "horas":       round(horas_parado),
+                    })
                 if criacao < limite_crit:
                     criticos.append({
                         "id":          tid,
@@ -197,6 +236,7 @@ def calcular():
                     resolvidos_hoje += 1
 
         criticos.sort(key=lambda x: x["dias"], reverse=True)
+        parados.sort(key=lambda x: x["horas"], reverse=True)
         total_abertos_prod = sum(por_prod.values()) or 1
 
         return {
@@ -204,6 +244,8 @@ def calcular():
             "resolvidos_hoje":  resolvidos_hoje,
             "criticos_count":   len(criticos),
             "criticos":         criticos[:50],
+            "parados":          parados[:30],
+            "parados_count":    len(parados),
             "por_prod":         sorted(por_prod.items(), key=lambda x: x[1], reverse=True),
             "por_tipo":         sorted(por_tipo.items(), key=lambda x: x[1], reverse=True),
             "total_abertos_prod": total_abertos_prod,
@@ -669,6 +711,98 @@ def bot_tendencias(chat_id):
     _reply(chat_id, "\n".join(linhas))
 
 
+def bot_relatorio(chat_id, arg):
+    """Resumo do período sob demanda: /relatorio [dd/mm] [dd/mm].
+    Sem argumentos: últimos 7 dias."""
+    import re as _re
+    agora = datetime.now(BRASILIA).replace(tzinfo=None)
+    datas = _re.findall(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?", arg or "")
+    try:
+        if len(datas) >= 2:
+            def _dt(d):
+                dia, mes, ano = d
+                return datetime(int(ano) if ano else agora.year, int(mes), int(dia))
+            dt_ini, dt_fim = _dt(datas[0]), _dt(datas[1])
+        else:
+            dt_fim = agora
+            dt_ini = agora - timedelta(days=7)
+    except ValueError:
+        _reply(chat_id, "⚠️ Datas inválidas\\. Use: `/relatorio 01/07 05/07`")
+        return
+    if dt_fim < dt_ini or (dt_fim - dt_ini).days > MAX_DIAS_PERIODO:
+        _reply(chat_id, f"⚠️ Período inválido \\(máx {MAX_DIAS_PERIODO} dias\\)\\.")
+        return
+
+    data_ini = dt_ini.strftime("%Y-%m-%d 00:00:00")
+    data_fim = dt_fim.strftime("%Y-%m-%d 23:59:59")
+
+    tok = get_session()
+    try:
+        total, resol, por_prod, tempos_h = 0, 0, {}, []
+        offset = 0
+        while True:
+            lote = api_get("Ticket", tok, {
+                "expand_dropdowns": True,
+                "range": f"{offset}-{offset+99}",
+                "sort": "date_creation", "order": "DESC",
+            })
+            if not lote:
+                break
+            parou = False
+            for t in lote:
+                dc = t.get("date_creation") or ""
+                if dc > data_fim:
+                    continue
+                if dc < data_ini:
+                    parou = True
+                    break
+                if not eh_recebemai(t):
+                    continue
+                total += 1
+                prod = produto(t)
+                por_prod[prod] = por_prod.get(prod, 0) + 1
+                if t.get("status") in (5, 6):
+                    resol += 1
+                    solve = t.get("solvedate") or t.get("date_mod") or ""
+                    try:
+                        d1 = datetime.strptime(dc[:19],    "%Y-%m-%d %H:%M:%S")
+                        d2 = datetime.strptime(solve[:19], "%Y-%m-%d %H:%M:%S")
+                        if d2 > d1:
+                            tempos_h.append((d2 - d1).total_seconds() / 3600)
+                    except Exception:
+                        pass
+            if parou or len(lote) < 100:
+                break
+            offset += 100
+
+        periodo_txt = f"{dt_ini.strftime('%d/%m')} a {dt_fim.strftime('%d/%m/%Y')}"
+        if not total:
+            _reply(chat_id, f"📭 Nenhum chamado Recebe Mais entre {periodo_txt}\\.")
+            return
+        taxa = round(resol / total * 100)
+        linhas = [
+            f"📊 *Relatório — {periodo_txt}*".replace("/", "\\/"), "",
+            f"📋 Total de chamados: *{total}*",
+            f"✅ Resolvidos/Fechados: *{resol}* \\(*{taxa}%*\\)",
+            f"🕐 Ainda em aberto: *{total - resol}*",
+        ]
+        if tempos_h:
+            tempos_h.sort()
+            media   = sum(tempos_h) / len(tempos_h)
+            mediana = tempos_h[len(tempos_h) // 2]
+            def _fmt(h):
+                return f"{int(h*60)} min" if h < 1 else (f"{h:.1f} h" if h < 48 else f"{h/24:.1f} dias")
+            linhas.append(f"⏱ Tempo até solução \\(corrido\\): média *{_fmt(media)}* · mediana *{_fmt(mediana)}*")
+        if por_prod:
+            linhas.append("")
+            linhas.append("*Por cliente:*")
+            for nome_p, qtd in sorted(por_prod.items(), key=lambda x: -x[1])[:6]:
+                linhas.append(f"  • {nome_p}: {qtd}")
+        _reply(chat_id, "\n".join(linhas))
+    finally:
+        close_session(tok)
+
+
 def bot_ajuda(chat_id):
     linhas = [
         "🤖 *Bot Suporte Recebe Mais*", "",
@@ -679,6 +813,7 @@ def bot_ajuda(chat_id):
         "`/chamado 14412` — detalhes de um chamado",
         "`/cliente tegma` — chamados abertos de um cliente",
         "`/tendencias` — análise de tendência das últimas semanas",
+        "`/relatorio 01/07 05/07` — resumo do período \\(sem datas: últimos 7 dias\\)",
         "`/ajuda` — esta mensagem",
     ]
     _reply(chat_id, "\n".join(linhas))
@@ -701,6 +836,8 @@ def _processar_comando(chat_id, text):
         bot_chamado(chat_id, arg)
     elif cmd == "/cliente":
         bot_cliente(chat_id, arg)
+    elif cmd == "/relatorio":
+        bot_relatorio(chat_id, arg)
     else:
         _reply(chat_id, "⚠️ Comando não reconhecido\\. Use `/ajuda` para ver os disponíveis\\.")
 

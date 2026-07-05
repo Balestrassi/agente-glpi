@@ -20,6 +20,9 @@ APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",  "")
 USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
+# Opcional: registra reaberturas no Google Sheets (vira métrica dos relatórios)
+GOOGLE_JSON      = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+SHEET_ID         = os.environ.get("SPREADSHEET_ID", "")
 
 BRASILIA   = timezone(timedelta(hours=-3))
 CACHE_FILE = Path(__file__).parent / "reaberturas_cache.json"
@@ -91,6 +94,41 @@ def enviar_telegram(texto: str):
               "parse_mode": "Markdown", "disable_web_page_preview": True},
         timeout=15,
     ).raise_for_status()
+
+# ── Registro em planilha (métrica de reabertura) ──────────────────────
+def registrar_planilha(reabertos, agora):
+    """Grava as reaberturas na aba 'Reaberturas' do Google Sheets, para que
+    a taxa de reabertura vire métrica nos relatórios. Sem credenciais ou
+    sem gspread instalado, apenas pula — o alerta Telegram não depende disso."""
+    if not GOOGLE_JSON or not SHEET_ID:
+        return
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except ImportError:
+        print("  [!] gspread não instalado — registro em planilha pulado.")
+        return
+    try:
+        creds = Credentials.from_service_account_info(
+            json.loads(GOOGLE_JSON),
+            scopes=["https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"],
+        )
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(SHEET_ID)
+        try:
+            ws = sh.worksheet("Reaberturas")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="Reaberturas", rows=1000, cols=6)
+            ws.append_row(["Data", "Ticket", "Cliente", "Título", "Resolvido em"])
+        for c in reabertos:
+            ws.append_row([
+                agora.strftime("%Y-%m-%d %H:%M"), c["id"], c["cli"],
+                c["titulo"][:80], c["data_resolucao"],
+            ])
+        print(f"  {len(reabertos)} reabertura(s) registrada(s) na planilha.")
+    except Exception as e:
+        print(f"  [!] Falha ao registrar na planilha: {e}")
 
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
@@ -168,6 +206,7 @@ def main():
         linhas.append(f"\n_Verificado em {agora.strftime('%d/%m/%Y %H:%M')} BRT_")
         enviar_telegram("\n".join(linhas))
         print(f"  {len(reabertos)} reabertura(s) alertada(s).")
+        registrar_planilha(reabertos, agora)
 
     finally:
         close_session(tok)
