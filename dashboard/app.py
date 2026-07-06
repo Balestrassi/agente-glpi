@@ -524,7 +524,7 @@ def buscar_historico():
         return result[-12:]  # últimas 12 semanas
     except Exception as e:
         print(f"[historico] erro: {e}")
-        return []
+        return None  # sinaliza falha — distinto de "sem linhas na planilha"
 
 
 @app.route("/api/historico")
@@ -534,8 +534,13 @@ def historico():
     if _hist_cache["data"] is None or now - _hist_cache["ts"] > 3600:  # cache 1h
         with _hist_lock:
             if _hist_cache["data"] is None or now - _hist_cache["ts"] > 3600:
-                _hist_cache["data"] = buscar_historico()
-                _hist_cache["ts"]   = time.time()
+                novo = buscar_historico()
+                if novo is not None:
+                    _hist_cache["data"] = novo
+                    _hist_cache["ts"]   = time.time()
+                elif _hist_cache["data"] is None:
+                    # nunca teve sucesso: nao trava por 1h, tenta de novo no proximo request
+                    _hist_cache["data"] = []
     return jsonify(_hist_cache["data"])
 
 
