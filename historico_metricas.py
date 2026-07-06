@@ -136,6 +136,16 @@ def horas_uteis(ini_str, fim_str):
         atual   = proximo.replace(hour=H_INI, minute=0, second=0, microsecond=0)
     return total
 
+def requester_numeric_id(tok, tid):
+    """Busca o ticket sem expand_dropdowns para obter users_id_recipient
+    como ID numerico (o ticket ja carregado usa expand_dropdowns, que
+    transforma esse campo em nome/texto e quebra a comparacao abaixo)."""
+    try:
+        t = api_get(f"Ticket/{tid}", tok)
+        return t.get("users_id_recipient")
+    except Exception:
+        return None
+
 def ultimo_tecnico_data(tok, tid, req_id):
     try:
         followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
@@ -344,7 +354,7 @@ def main():
             tid      = t["id"]
             criacao  = t.get("date_creation") or ""
             atualizacao = t.get("date_mod") or ""
-            req_id   = t.get("users_id_recipient")
+            req_id   = requester_numeric_id(tok2, tid)
 
             h_ciclo  = horas_uteis(criacao, atualizacao)
             ult      = ultimo_tecnico_data(tok2, tid, req_id)
