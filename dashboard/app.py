@@ -232,7 +232,8 @@ def calcular():
                         "cliente":     cli,
                     })
             elif status in (5, 6):
-                if data_mod.startswith(hoje_str):
+                data_resol = t.get("solvedate") or data_mod
+                if data_resol.startswith(hoje_str):
                     resolvidos_hoje += 1
 
         criticos.sort(key=lambda x: x["dias"], reverse=True)
