@@ -117,6 +117,13 @@ def tipo(titulo):
     if "melhoria" in tl:                          return "Solicitação de Melhoria"
     return "Outros"
 
+# ── Critério de "resolvido" estável no tempo ───────────────────────────
+def foi_resolvido_no_periodo(solvedate, data_fim):
+    """Usa solvedate (nao o status ao vivo) para que 'Resolvidos'/'Taxa'
+    nao mudem dependendo de quando o relatorio roda em relacao ao
+    historico_metricas.py — ambos passam a bater sempre."""
+    return bool(solvedate) and solvedate <= data_fim
+
 # ── Busca de tickets ──────────────────────────────────────────────────
 def buscar_tickets_range(tok, data_ini, data_fim):
     tickets = []
@@ -437,6 +444,13 @@ def visao_geral(story, total, resol, taxa, por_status, por_prod, por_tipo_d,
         rows.append((Paragraph(f'<font color="{c_hex}"><b>{nome}</b></font>', BODY),
                      str(qtd), f"{pct}%", barra))
     story.append(styled_tbl(["Status","Qtd.","%","Proporção"], rows, [4*cm,2*cm,2*cm,9*cm]))
+    story.append(Paragraph(
+        "Nota: esta tabela reflete o status atual no GLPI no momento da geração do relatório. "
+        "O KPI \"Resolvidos / Fechados\" acima considera a data de solução (solvedate) até o fim "
+        "do período, por isso pode divergir levemente.",
+        ParagraphStyle("statusnote", fontName="Helvetica-Oblique", fontSize=7.5,
+                       textColor=colors.HexColor("#7F8C8D"), leading=11)
+    ))
 
     story += section("Volume por Cliente")
     rows_p = []
@@ -587,7 +601,8 @@ def em_aberto(story, nao_resolvidos):
 
     aviso = Table([[Paragraph(
         f"Os {len(nao_resolvidos)} chamados abaixo foram criados na semana {PERIODO_LABEL} "
-        "e ainda não foram resolvidos ou fechados.",
+        "e não tinham data de solução registrada até o fim do período (podem já ter sido "
+        "resolvidos após a geração deste relatório).",
         ParagraphStyle("av",fontName="Helvetica",fontSize=9,textColor=AMARELO,leading=13)
     )]], colWidths=[17*cm])
     aviso.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#FEF9E7")),
@@ -763,7 +778,8 @@ def main():
     try:
         tickets_ant = buscar_tickets_range(tok_ant, DATA_INI_ANT, DATA_FIM_ANT)
         total_ant   = len(tickets_ant)
-        resol_ant   = sum(1 for t in tickets_ant if t.get("status") in (5, 6))
+        resol_ant   = sum(1 for t in tickets_ant
+                          if foi_resolvido_no_periodo(t.get("solvedate") or "", DATA_FIM_ANT))
         taxa_ant    = round(resol_ant / total_ant * 100) if total_ant else 0
         comp        = {"total": total_ant, "resol": resol_ant, "taxa": taxa_ant}
         print(f"  Semana anterior: {total_ant} tickets, {taxa_ant}% resolvidos")
@@ -781,15 +797,17 @@ def main():
             t.get("urgency", 3),
             t.get("status", 1),
             produto(t),
+            t.get("solvedate") or "",
         ))
 
     # Busca followups para todos os resolvidos (técnico + ID do técnico)
-    print(f"  Buscando followups de {sum(1 for *_, st, _ in TICKETS if st in (5,6))} tickets resolvidos...")
+    resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, _, st, prod, solve in TICKETS
+                  if foi_resolvido_no_periodo(solve, DATA_FIM)]
+    print(f"  Buscando followups de {len(resolvidos)} tickets resolvidos...")
     tok2 = get_session()
     try:
         DADOS    = {}
         RANKING  = {}   # {user_id: {nome, count, tempos}}
-        resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, _, st, prod in TICKETS if st in (5, 6)]
         for i, (tid, criacao, prod) in enumerate(resolvidos):
             req_id                   = requester_numeric_id(tok2, tid)
             ult_data, uid, prim_data = ultimo_tecnico_completo(tok2, tid, req_id)
@@ -817,12 +835,13 @@ def main():
     frt_list   = []   # tempo até a primeira resposta do técnico (horas úteis)
     nao_resolvidos = []
 
-    for tid, titulo, criacao, atualizacao, urg, st, prod in TICKETS:
+    for tid, titulo, criacao, atualizacao, urg, st, prod, solve in TICKETS:
         por_status[st] = por_status.get(st, 0) + 1
         tp = tipo(titulo)
         por_prod[prod]   = por_prod.get(prod, 0) + 1
         por_tipo_d[tp]   = por_tipo_d.get(tp, 0) + 1
-        if st in (5, 6):
+        resolvido = foi_resolvido_no_periodo(solve, DATA_FIM)
+        if resolvido:
             d          = DADOS.get(tid, {})
             dt_criacao = d.get("criacao") or criacao
             h_ciclo    = horas_uteis(dt_criacao, atualizacao)
@@ -836,11 +855,11 @@ def main():
             if uid and uid in RANKING:
                 RANKING[uid]["tempos_tecnico"].append(h_tecnico)
                 RANKING[uid]["tempos_ciclo"].append(h_ciclo)
-        if st in (1, 2, 4):
+        else:
             nao_resolvidos.append((tid, titulo, criacao, urg, STATUS_NOME[st]))
 
     TOTAL      = len(TICKETS)
-    RESOL      = por_status.get(5, 0) + por_status.get(6, 0)
+    RESOL      = sum(1 for *_, solve in TICKETS if foi_resolvido_no_periodo(solve, DATA_FIM))
     TAXA_RESOL = round(RESOL / TOTAL * 100) if TOTAL else 0
 
     TEMPO_GERAL_CICLO   = sum(hc for hc, *_ in tempos) / len(tempos) if tempos else 0

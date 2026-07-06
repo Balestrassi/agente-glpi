@@ -77,6 +77,13 @@ def eh_recebemai(ticket):
     categoria = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
 
+# ── Critério de "resolvido" estável no tempo ───────────────────────────
+def foi_resolvido_no_periodo(ticket, data_fim):
+    """Usa solvedate (nao o status ao vivo) para que o numero nao mude
+    dependendo de quando este script roda em relacao ao relatorio semanal."""
+    solve = ticket.get("solvedate") or ""
+    return bool(solve) and solve <= data_fim
+
 # ── Busca tickets ─────────────────────────────────────────────────────
 def buscar_tickets(tok):
     tickets = []
@@ -337,10 +344,10 @@ def main():
         print("  Nenhum ticket encontrado.")
         return
 
-    total    = len(tickets)
-    resol    = sum(1 for t in tickets if t.get("status") in (5, 6))
-    em_aberto = sum(1 for t in tickets if t.get("status") in (1, 2, 4))
-    taxa     = round(resol / total * 100) if total else 0
+    total     = len(tickets)
+    resol     = sum(1 for t in tickets if foi_resolvido_no_periodo(t, DATA_FIM))
+    em_aberto = total - resol
+    taxa      = round(resol / total * 100) if total else 0
 
     # Tempo médio: busca followups dos resolvidos
     print(f"  Calculando tempos de {resol} tickets resolvidos...")
@@ -349,7 +356,7 @@ def main():
     tok2 = get_session()
     try:
         for t in tickets:
-            if t.get("status") not in (5, 6):
+            if not foi_resolvido_no_periodo(t, DATA_FIM):
                 continue
             tid      = t["id"]
             criacao  = t.get("date_creation") or ""
