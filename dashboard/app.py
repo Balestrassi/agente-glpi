@@ -4,6 +4,7 @@ Serve o HTML e um endpoint /api/stats com dados do GLPI (cache 5 min).
 """
 
 import os
+import sys
 import json
 import html
 import time
@@ -12,6 +13,11 @@ import requests
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify, render_template, request
+
+# Sob gunicorn, stdout nao vai para um terminal e o Python usa buffer cheio
+# em vez de por linha — os print() de diagnostico (ex: "[historico] erro")
+# ficavam presos no buffer e nunca apareciam no log do Render.
+sys.stdout.reconfigure(line_buffering=True)
 
 try:
     import gspread
@@ -60,7 +66,7 @@ def _exigir_token():
     O webhook do Telegram tem validação própria (chat autorizado)."""
     if not DASHBOARD_TOKEN:
         return
-    if not request.path.startswith("/api/"):
+    if not (request.path.startswith("/api/") or request.path == "/setup-webhook"):
         return
     enviado = (request.headers.get("X-Dashboard-Token")
                or request.args.get("token") or "")
