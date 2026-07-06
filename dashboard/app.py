@@ -497,6 +497,25 @@ def stats():
 
 # ── Histórico Google Sheets ───────────────────────────────────────────
 
+def _parse_horas(valor):
+    """T.Técnico(h)/T.Ciclo(h) saem do Sheets como 'H:MM:SS' (formato Duração
+    aplicado na coluna) em vez do numero decimal que o script escreveu —
+    converte de volta para horas decimais. Aceita numero puro tambem."""
+    if not valor:
+        return 0.0
+    if ":" in valor:
+        partes = (valor.split(":") + ["0", "0"])[:3]
+        try:
+            h, m, s = partes
+            return int(h) + int(m) / 60 + float(s) / 3600
+        except ValueError:
+            return 0.0
+    try:
+        return float(valor)
+    except ValueError:
+        return 0.0
+
+
 def buscar_historico():
     if not _GSPREAD_OK or not GOOGLE_JSON or not SHEET_ID:
         print(f"[historico] pre-condicao falhou: _GSPREAD_OK={_GSPREAD_OK} "
@@ -525,8 +544,8 @@ def buscar_historico():
                     "total":     int(float(row[2]))   if len(row) > 2 and row[2]  else 0,
                     "resolvidos":int(float(row[3]))   if len(row) > 3 and row[3]  else 0,
                     "taxa":      float(row[4])         if len(row) > 4 and row[4]  else 0,
-                    "t_tecnico": float(row[5])         if len(row) > 5 and row[5]  else 0,
-                    "t_ciclo":   float(row[6])         if len(row) > 6 and row[6]  else 0,
+                    "t_tecnico": _parse_horas(row[5])  if len(row) > 5 else 0,
+                    "t_ciclo":   _parse_horas(row[6])  if len(row) > 6 else 0,
                     "em_aberto": int(float(row[7]))   if len(row) > 7 and row[7]  else 0,
                 })
             except Exception:
