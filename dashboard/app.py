@@ -509,8 +509,10 @@ def buscar_historico():
                     "https://www.googleapis.com/auth/drive"],
         )
         gc   = gspread.authorize(creds)
-        ws   = gc.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
+        sh   = gc.open_by_key(SHEET_ID)
+        ws   = sh.worksheet(SHEET_NAME)
         rows = ws.get_all_values()
+        print(f"[historico] planilha '{sh.title}' aba '{SHEET_NAME}': {len(rows)} linha(s) (incl. cabecalho)")
         if len(rows) < 2:
             return []
         # header: Data | Período | Total | Resolvidos | Taxa% | T.Técnico(h) | T.Ciclo(h) | Em Aberto
