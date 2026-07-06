@@ -493,7 +493,9 @@ def stats():
 
 def buscar_historico():
     if not _GSPREAD_OK or not GOOGLE_JSON or not SHEET_ID:
-        return []
+        print(f"[historico] pre-condicao falhou: _GSPREAD_OK={_GSPREAD_OK} "
+              f"GOOGLE_JSON_len={len(GOOGLE_JSON)} SHEET_ID={'set' if SHEET_ID else 'vazio'}")
+        return None
     try:
         creds = Credentials.from_service_account_info(
             json.loads(GOOGLE_JSON),
