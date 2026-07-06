@@ -2,7 +2,7 @@ name: Relatório Semanal GLPI
 
 on:
   schedule:
-    - cron: '0 12 * * 1'   # toda segunda-feira às 12h UTC = 09h Brasília
+    - cron: '7 12 * * 1'   # toda segunda-feira às 12h07 UTC = 09h07 Brasília (evita fila do minuto cheio)
   workflow_dispatch:         # permite disparo manual se precisar
 
 jobs:
