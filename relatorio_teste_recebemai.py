@@ -23,6 +23,7 @@ from reportlab.platypus import (
 GLPI_URL   = os.environ.get("GLPI_URL", "https://servicedesk.a7on.ai")
 APP_TOKEN  = os.environ["GLPI_APP_TOKEN"]
 USER_TOKEN = os.environ["GLPI_USER_TOKEN"]
+GLPI_PROFILE_ID = os.environ.get("GLPI_PROFILE_ID", "4")
 
 # ── Período: semana anterior seg-dom ─────────────────────────────────
 hoje         = datetime.utcnow()
@@ -70,7 +71,13 @@ def get_session():
         timeout=15,
     )
     r.raise_for_status()
-    return r.json()["session_token"]
+    tok = r.json()["session_token"]
+    # Forca o perfil Super-Admin: a conta usada aqui tambem tem um perfil
+    # restrito por entidade (Tegma-only). Sem isso, initSession pode herdar
+    # o ultimo perfil ativo da conta e esconder chamados de outras entidades.
+    requests.post(f"{GLPI_URL}/apirest.php/changeActiveProfile", headers=_headers(tok),
+                  json={"profiles_id": GLPI_PROFILE_ID}, timeout=15)
+    return tok
 
 def close_session(tok):
     requests.get(f"{GLPI_URL}/apirest.php/killSession", headers=_headers(tok), timeout=10)

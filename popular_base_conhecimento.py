@@ -20,6 +20,7 @@ from pathlib import Path
 GLPI_URL   = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
 APP_TOKEN  = os.environ.get("GLPI_APP_TOKEN",  "")
 USER_TOKEN = os.environ.get("GLPI_USER_TOKEN", "")
+GLPI_PROFILE_ID = os.environ.get("GLPI_PROFILE_ID", "4")
 
 BRASILIA          = timezone(timedelta(hours=-3))
 JANELA_HORAS      = 48    # busca tickets resolvidos nas últimas 48h
@@ -50,7 +51,13 @@ def get_session():
         timeout=15,
     )
     r.raise_for_status()
-    return r.json()["session_token"]
+    tok = r.json()["session_token"]
+    # Forca o perfil Super-Admin: a conta usada aqui tambem tem um perfil
+    # restrito por entidade (Tegma-only). Sem isso, initSession pode herdar
+    # o ultimo perfil ativo da conta e esconder chamados de outras entidades.
+    requests.post(f"{GLPI_URL}/apirest.php/changeActiveProfile", headers=_h(tok),
+                  json={"profiles_id": GLPI_PROFILE_ID}, timeout=15)
+    return tok
 
 def close_session(tok):
     requests.get(f"{GLPI_URL}/apirest.php/killSession", headers=_h(tok), timeout=10)

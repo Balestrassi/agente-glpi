@@ -10,6 +10,7 @@ BRASILIA = timezone(timedelta(hours=-3))
 GLPI_URL = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN = os.environ["GLPI_APP_TOKEN"]
 USER_TOKEN = os.environ["GLPI_USER_TOKEN"]
+GLPI_PROFILE_ID = os.environ.get("GLPI_PROFILE_ID", "4")
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
@@ -53,7 +54,18 @@ def get_session():
         headers={"Authorization": f"user_token {USER_TOKEN}", "App-Token": APP_TOKEN},
     )
     r.raise_for_status()
-    return r.json()["session_token"]
+    tok = r.json()["session_token"]
+    # Forca o perfil Super-Admin: a conta usada aqui tambem tem um perfil
+    # restrito por entidade (Tegma-only). Sem isso, initSession pode herdar
+    # o ultimo perfil ativo da conta e esconder chamados de outras entidades
+    # (foi exatamente por isso que o chamado 14608, da entidade Messiânica,
+    # nao recebeu primeiro atendimento).
+    requests.post(
+        f"{GLPI_URL}/apirest.php/changeActiveProfile",
+        headers={"App-Token": APP_TOKEN, "Session-Token": tok},
+        json={"profiles_id": GLPI_PROFILE_ID},
+    )
+    return tok
 
 
 def close_session(session_token):
