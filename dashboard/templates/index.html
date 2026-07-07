@@ -918,6 +918,10 @@ async function tendenciaKpi() {
 
 carregar().then(tendenciaKpi);
 setInterval(carregar, 300000);
+// "Por Técnico" e "Análise" só carregam ao trocar de aba pela primeira vez —
+// sem isso, quem deixa a aba aberta fica preso na foto de quando entrou nela.
+setInterval(() => { if (_tecnicosCarregados) carregarTecnicos(); }, 300000);
+setInterval(() => { if (_analiseCarregada) carregarHistorico(); }, 300000);
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
