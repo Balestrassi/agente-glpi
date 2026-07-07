@@ -30,6 +30,15 @@ CACHE_FILE = Path(__file__).parent / "reaberturas_cache.json"
 
 STATUS_NOME = {1: "Novo", 2: "Em andamento", 4: "Pendente", 5: "Resolvido", 6: "Fechado"}
 
+def _esc_md(texto):
+    """Escapa caracteres especiais do Markdown legado do Telegram (_ * ` [).
+    Sem isso, um titulo/cliente com esses caracteres quebra a mensagem
+    inteira com 400 Bad Request."""
+    texto = texto or ""
+    for ch in ("_", "*", "`", "["):
+        texto = texto.replace(ch, "\\" + ch)
+    return texto
+
 # ── GLPI API ──────────────────────────────────────────────────────────
 def _h(tok=None):
     h = {"App-Token": APP_TOKEN}
@@ -95,12 +104,15 @@ def enviar_telegram(texto: str):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("  [!] Telegram não configurado.")
         return
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": texto,
-              "parse_mode": "Markdown", "disable_web_page_preview": True},
-        timeout=15,
-    ).raise_for_status()
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": texto,
+                  "parse_mode": "Markdown", "disable_web_page_preview": True},
+            timeout=15,
+        ).raise_for_status()
+    except Exception as e:
+        print(f"  [!] Erro ao enviar Telegram: {e}")
 
 # ── Registro em planilha (métrica de reabertura) ──────────────────────
 def registrar_planilha(reabertos, agora):
@@ -205,8 +217,8 @@ def main():
         linhas = [f"🔄 *{len(reabertos)} chamado(s) reaberto(s)\\!*\n"]
         for c in reabertos:
             link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
-            titulo_esc = c['titulo'].replace('_', '\\_').replace('*', '\\*')
-            linhas.append(f"• [\\#{c['id']}]({link}) — *{c['cli']}*")
+            titulo_esc = _esc_md(c['titulo'])
+            linhas.append(f"• [\\#{c['id']}]({link}) — *{_esc_md(c['cli'])}*")
             linhas.append(f"  {titulo_esc[:55]}")
             linhas.append(f"  _Resolvido em {c['data_resolucao']} → Status: {c['status']}_")
 

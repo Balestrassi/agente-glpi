@@ -20,6 +20,15 @@ CRITICO_DIAS  = 3   # chamados abertos há mais de X dias são críticos
 
 DIAS_SEMANA = {0:"Segunda",1:"Terça",2:"Quarta",3:"Quinta",4:"Sexta",5:"Sábado",6:"Domingo"}
 
+def _esc_md(texto):
+    """Escapa caracteres especiais do Markdown legado do Telegram (_ * ` [).
+    Sem isso, um titulo/cliente com esses caracteres quebra a mensagem
+    inteira com 400 Bad Request."""
+    texto = texto or ""
+    for ch in ("_", "*", "`", "["):
+        texto = texto.replace(ch, "\\" + ch)
+    return texto
+
 # ── GLPI API ──────────────────────────────────────────────────────────
 def _h(tok=None):
     h = {"App-Token": APP_TOKEN}
@@ -92,12 +101,15 @@ def enviar_telegram(texto):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("  [!] Telegram não configurado.")
         return
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "Markdown",
-              "disable_web_page_preview": True},
-        timeout=15,
-    ).raise_for_status()
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "Markdown",
+                  "disable_web_page_preview": True},
+            timeout=15,
+        ).raise_for_status()
+    except Exception as e:
+        print(f"  [!] Erro ao enviar Telegram: {e}")
 
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
@@ -157,9 +169,9 @@ def main():
         STATUS_LABEL = {1: "Novo", 2: "Em andamento", 4: "Pendente"}
         for c in criticos[:8]:
             status_label = STATUS_LABEL.get(c["status"], "?")
-            titulo = c["nome"][:45] + ("…" if len(c["nome"]) > 45 else "")
+            titulo = _esc_md(c["nome"][:45] + ("…" if len(c["nome"]) > 45 else ""))
             link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
-            linhas.append(f"• [\\#{c['id']}]({link}) — {c['cliente']} | {titulo}")
+            linhas.append(f"• [\\#{c['id']}]({link}) — {_esc_md(c['cliente'])} | {titulo}")
             linhas.append(f"  _{status_label} · aberto há {c['dias']} dias_")
 
     linhas.append("")

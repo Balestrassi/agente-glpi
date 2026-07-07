@@ -33,6 +33,15 @@ SUPRESSAO_HORAS  = 3    # não re-alertar o mesmo cliente por N horas
 
 ALERTADOS_FILE = Path("anomalias_alertadas.json")
 
+def _esc_md(texto):
+    """Escapa caracteres especiais do Markdown legado do Telegram (_ * ` [).
+    Sem isso, um titulo/cliente com esses caracteres quebra a mensagem
+    inteira com 400 Bad Request."""
+    texto = texto or ""
+    for ch in ("_", "*", "`", "["):
+        texto = texto.replace(ch, "\\" + ch)
+    return texto
+
 
 # ── GLPI API ──────────────────────────────────────────────────────────
 def _h(tok=None):
@@ -149,12 +158,12 @@ def main():
 
         print(f"  ANOMALIA: {cliente} — {len(ts)} chamados em {JANELA_MINUTOS} min")
         linhas = [
-            f"🚨 *Possível incidente em massa — {cliente}*", "",
+            f"🚨 *Possível incidente em massa — {_esc_md(cliente)}*", "",
             f"*{len(ts)} chamados* abertos nos últimos {JANELA_MINUTOS} minutos\\.",
             "Provavelmente é UM incidente sistêmico — avalie antes de triar um a um\\.", "",
         ]
         for t in ts[:6]:
-            titulo = html.unescape(t.get("name") or "")[:45]
+            titulo = _esc_md(html.unescape(t.get("name") or "")[:45])
             hora   = (t.get("date_creation") or "")[11:16]
             linhas.append(
                 f"• [\\#{t['id']}]({GLPI_URL}/front/ticket.form.php?id={t['id']})"

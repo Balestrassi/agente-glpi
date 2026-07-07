@@ -603,6 +603,16 @@ def _link(tid):
     return f"{GLPI_URL}/front/ticket.form.php?id={tid}"
 
 
+def _esc_md(texto):
+    """Escapa caracteres especiais do Markdown legado do Telegram (_ * ` [).
+    Sem isso, um titulo/cliente com esses caracteres quebra a mensagem
+    inteira com 400 Bad Request."""
+    texto = texto or ""
+    for ch in ("_", "*", "`", "["):
+        texto = texto.replace(ch, "\\" + ch)
+    return texto
+
+
 def bot_resumo(chat_id):
     d = _dados_cache()
     linhas = [
@@ -626,7 +636,7 @@ def bot_criticos(chat_id):
         return
     linhas = [f"🔴 *{n} chamado(s) crítico(s) \\(\\+3 dias\\)*", ""]
     for c in criticos:
-        titulo = (c.get("titulo") or "")[:50]
+        titulo = _esc_md((c.get("titulo") or "")[:50])
         linhas.append(f"• [\\#{c['id']}]({_link(c['id'])}) — {titulo}")
         linhas.append(f"  _{c.get('status_nome', '')} · {c.get('dias', 0)} dias_")
     _reply(chat_id, "\n".join(linhas))
@@ -640,7 +650,7 @@ def bot_abertos(chat_id):
     if por_prod:
         linhas.append("*Por cliente:*")
         for nome, qtd in por_prod:
-            linhas.append(f"  • {nome}: {qtd}")
+            linhas.append(f"  • {_esc_md(nome)}: {qtd}")
     _reply(chat_id, "\n".join(linhas))
 
 
@@ -659,12 +669,12 @@ def bot_chamado(chat_id, arg):
         urg_map    = {1:"Muito Baixa",2:"Baixa",3:"Média",4:"Alta",5:"Muito Alta"}
         entidade   = html.unescape((t.get("entities_id") or "").strip())
         cli        = [p.strip() for p in entidade.split(">")][-1] if entidade else "?"
-        titulo     = html.unescape(t.get("name") or "Sem título").replace("_","\\_").replace("*","\\*")
+        titulo     = _esc_md(html.unescape(t.get("name") or "Sem título"))
         criacao    = (t.get("date_creation") or "")[:16]
         linhas = [
             f"📌 *Chamado \\#{tid}*",
             f"*Título:* {titulo}",
-            f"*Cliente:* {cli}",
+            f"*Cliente:* {_esc_md(cli)}",
             f"*Status:* {status_map.get(t.get('status'), '?')}",
             f"*Urgência:* {urg_map.get(t.get('urgency'), '?')}",
             f"*Aberto em:* {criacao}",
@@ -695,7 +705,7 @@ def bot_cliente(chat_id, arg):
             return
         linhas = [f"🏢 *{arg.title()} — {len(abertos)} chamado(s) aberto(s)*", ""]
         for t in abertos[:8]:
-            titulo = html.unescape(t.get("name") or "")[:50]
+            titulo = _esc_md(html.unescape(t.get("name") or "")[:50])
             dc     = (t.get("date_creation") or "")[:10]
             try:
                 dias = (datetime.now(BRASILIA).replace(tzinfo=None) -
@@ -839,7 +849,7 @@ def bot_relatorio(chat_id, arg):
             linhas.append("")
             linhas.append("*Por cliente:*")
             for nome_p, qtd in sorted(por_prod.items(), key=lambda x: -x[1])[:6]:
-                linhas.append(f"  • {nome_p}: {qtd}")
+                linhas.append(f"  • {_esc_md(nome_p)}: {qtd}")
         _reply(chat_id, "\n".join(linhas))
     finally:
         close_session(tok)

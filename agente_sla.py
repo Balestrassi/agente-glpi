@@ -33,6 +33,15 @@ NIVEL_LABEL  = {
     3: "CRÍTICO — Sem resposta há \\+72h",
 }
 
+def _esc_md(texto):
+    """Escapa caracteres especiais do Markdown legado do Telegram (_ * ` [).
+    Sem isso, um titulo/cliente com esses caracteres quebra a mensagem
+    inteira com 400 Bad Request."""
+    texto = texto or ""
+    for ch in ("_", "*", "`", "["):
+        texto = texto.replace(ch, "\\" + ch)
+    return texto
+
 # ── Persistência ──────────────────────────────────────────────────────
 def carregar_alertados():
     if ALERTADOS_FILE.exists():
@@ -166,12 +175,15 @@ def enviar_telegram(texto):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("  [!] Telegram não configurado.")
         return
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "Markdown",
-              "disable_web_page_preview": True},
-        timeout=15,
-    ).raise_for_status()
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": texto, "parse_mode": "Markdown",
+                  "disable_web_page_preview": True},
+            timeout=15,
+        ).raise_for_status()
+    except Exception as e:
+        print(f"  [!] Erro ao enviar Telegram: {e}")
 
 # ── Main ──────────────────────────────────────────────────────────────
 def main():
@@ -253,7 +265,7 @@ def main():
             linhas = [f"{NIVEL_EMOJI[nivel]} *{len(chamados)} chamado(s) — {NIVEL_LABEL[nivel]}*\n"]
             for c in chamados:
                 link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
-                linhas.append(f"• [\\#{c['id']}]({link}) — {c['nome']}")
+                linhas.append(f"• [\\#{c['id']}]({link}) — {_esc_md(c['nome'])}")
                 linhas.append(f"  _{c['status']} · sem resposta há {c['tempo']}_")
 
             linhas.append(f"\n_Verificado em {agora_brt.strftime('%d/%m/%Y %H:%M')} BRT_")
