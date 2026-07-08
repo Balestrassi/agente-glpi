@@ -619,7 +619,7 @@ def bot_resumo(chat_id):
         "📊 *Resumo Recebe Mais — agora*", "",
         f"📋 Em aberto: *{d.get('abertos', 0)}*",
         f"✅ Resolvidos hoje: *{d.get('resolvidos_hoje', 0)}*",
-        f"🔴 Críticos \\(\\+3 dias\\): *{d.get('criticos_count', 0)}*",
+        f"🔴 Críticos (+3 dias): *{d.get('criticos_count', 0)}*",
         f"📈 Taxa semana: *{d.get('taxa_semana', 0)}%*",
         "",
         f"_Atualizado: {d.get('atualizado', '?')}_",
@@ -632,12 +632,12 @@ def bot_criticos(chat_id):
     criticos = d.get("criticos", [])
     n        = d.get("criticos_count", len(criticos))
     if not criticos:
-        _reply(chat_id, "✅ Nenhum chamado crítico no momento\\.")
+        _reply(chat_id, "✅ Nenhum chamado crítico no momento.")
         return
-    linhas = [f"🔴 *{n} chamado(s) crítico(s) \\(\\+3 dias\\)*", ""]
+    linhas = [f"🔴 *{n} chamado(s) crítico(s) (+3 dias)*", ""]
     for c in criticos:
         titulo = _esc_md((c.get("titulo") or "")[:50])
-        linhas.append(f"• [\\#{c['id']}]({_link(c['id'])}) — {titulo}")
+        linhas.append(f"• [#{c['id']}]({_link(c['id'])}) — {titulo}")
         linhas.append(f"  _{c.get('status_nome', '')} · {c.get('dias', 0)} dias_")
     _reply(chat_id, "\n".join(linhas))
 
@@ -663,7 +663,7 @@ def bot_chamado(chat_id, arg):
     try:
         t = api_get(f"Ticket/{tid}", tok, {"expand_dropdowns": True})
         if not isinstance(t, dict) or "id" not in t:
-            _reply(chat_id, f"❌ Chamado \\#{tid} não encontrado\\.")
+            _reply(chat_id, f"❌ Chamado #{tid} não encontrado.")
             return
         status_map = {1:"Novo",2:"Em andamento",4:"Pendente",5:"Resolvido",6:"Fechado"}
         urg_map    = {1:"Muito Baixa",2:"Baixa",3:"Média",4:"Alta",5:"Muito Alta"}
@@ -672,7 +672,7 @@ def bot_chamado(chat_id, arg):
         titulo     = _esc_md(html.unescape(t.get("name") or "Sem título"))
         criacao    = (t.get("date_creation") or "")[:16]
         linhas = [
-            f"📌 *Chamado \\#{tid}*",
+            f"📌 *Chamado #{tid}*",
             f"*Título:* {titulo}",
             f"*Cliente:* {_esc_md(cli)}",
             f"*Status:* {status_map.get(t.get('status'), '?')}",
@@ -701,7 +701,7 @@ def bot_cliente(chat_id, arg):
             and arg.lower() in (t.get("entities_id") or "").lower()
         ]
         if not abertos:
-            _reply(chat_id, f"✅ Nenhum chamado aberto para *{arg}*\\.")
+            _reply(chat_id, f"✅ Nenhum chamado aberto para *{arg}*.")
             return
         linhas = [f"🏢 *{arg.title()} — {len(abertos)} chamado(s) aberto(s)*", ""]
         for t in abertos[:8]:
@@ -712,10 +712,10 @@ def bot_cliente(chat_id, arg):
                         datetime.strptime(dc, "%Y-%m-%d")).days
             except Exception:
                 dias = 0
-            linhas.append(f"• [\\#{t['id']}]({_link(t['id'])}) — {titulo}")
+            linhas.append(f"• [#{t['id']}]({_link(t['id'])}) — {titulo}")
             linhas.append(f"  _{dias} dia(s) aberto_")
         if len(abertos) > 8:
-            linhas.append(f"\n_\\.\\.\\. e mais {len(abertos) - 8} chamado(s)_")
+            linhas.append(f"\n_... e mais {len(abertos) - 8} chamado(s)_")
         _reply(chat_id, "\n".join(linhas))
     finally:
         close_session(tok)
@@ -724,7 +724,7 @@ def bot_cliente(chat_id, arg):
 def bot_tendencias(chat_id):
     dados = buscar_historico()
     if not dados:
-        _reply(chat_id, "📊 Ainda não há histórico suficiente\\. O registro começa todo domingo às 22h\\.")
+        _reply(chat_id, "📊 Ainda não há histórico suficiente. O registro começa todo domingo às 22h.")
         return
     n = len(dados)
     ultima = dados[-1]
@@ -749,17 +749,17 @@ def bot_tendencias(chat_id):
         linhas.append(f"*Análise:*")
         linhas.append(f"  Média de resolução: {media:.0f}%")
         if tendencia_taxa > 5:
-            linhas.append(f"  Tendência: ↑ Melhorando \\({tendencia_taxa:+.0f}pp desde a 1ª semana\\)")
+            linhas.append(f"  Tendência: ↑ Melhorando ({tendencia_taxa:+.0f}pp desde a 1ª semana)")
         elif tendencia_taxa < -5:
-            linhas.append(f"  Tendência: ↓ Atenção \\({tendencia_taxa:+.0f}pp desde a 1ª semana\\)")
+            linhas.append(f"  Tendência: ↓ Atenção ({tendencia_taxa:+.0f}pp desde a 1ª semana)")
         else:
             linhas.append(f"  Tendência: ↔ Estável")
 
         melhor = max(dados, key=lambda x: x["taxa"])
-        linhas.append(f"  Melhor semana: {melhor['periodo']} \\({melhor['taxa']:.0f}%\\)")
+        linhas.append(f"  Melhor semana: {melhor['periodo']} ({melhor['taxa']:.0f}%)")
 
     linhas.append("")
-    linhas.append("_Ver gráficos: suporte\\-rm\\-dashboard\\.onrender\\.com_")
+    linhas.append("_Ver gráficos: suporte-rm-dashboard.onrender.com_")
     _reply(chat_id, "\n".join(linhas))
 
 
@@ -779,10 +779,10 @@ def bot_relatorio(chat_id, arg):
             dt_fim = agora
             dt_ini = agora - timedelta(days=7)
     except ValueError:
-        _reply(chat_id, "⚠️ Datas inválidas\\. Use: `/relatorio 01/07 05/07`")
+        _reply(chat_id, "⚠️ Datas inválidas. Use: `/relatorio 01/07 05/07`")
         return
     if dt_fim < dt_ini or (dt_fim - dt_ini).days > MAX_DIAS_PERIODO:
-        _reply(chat_id, f"⚠️ Período inválido \\(máx {MAX_DIAS_PERIODO} dias\\)\\.")
+        _reply(chat_id, f"⚠️ Período inválido (máx {MAX_DIAS_PERIODO} dias).")
         return
 
     data_ini = dt_ini.strftime("%Y-%m-%d 00:00:00")
@@ -829,13 +829,13 @@ def bot_relatorio(chat_id, arg):
 
         periodo_txt = f"{dt_ini.strftime('%d/%m')} a {dt_fim.strftime('%d/%m/%Y')}"
         if not total:
-            _reply(chat_id, f"📭 Nenhum chamado Recebe Mais entre {periodo_txt}\\.")
+            _reply(chat_id, f"📭 Nenhum chamado Recebe Mais entre {periodo_txt}.")
             return
         taxa = round(resol / total * 100)
         linhas = [
-            f"📊 *Relatório — {periodo_txt}*".replace("/", "\\/"), "",
+            f"📊 *Relatório — {periodo_txt}*", "",
             f"📋 Total de chamados: *{total}*",
-            f"✅ Resolvidos/Fechados: *{resol}* \\(*{taxa}%*\\)",
+            f"✅ Resolvidos/Fechados: *{resol}* (*{taxa}%*)",
             f"🕐 Ainda em aberto: *{total - resol}*",
         ]
         if tempos_h:
@@ -844,7 +844,7 @@ def bot_relatorio(chat_id, arg):
             mediana = tempos_h[len(tempos_h) // 2]
             def _fmt(h):
                 return f"{int(h*60)} min" if h < 1 else (f"{h:.1f} h" if h < 48 else f"{h/24:.1f} dias")
-            linhas.append(f"⏱ Tempo até solução \\(corrido\\): média *{_fmt(media)}* · mediana *{_fmt(mediana)}*")
+            linhas.append(f"⏱ Tempo até solução (corrido): média *{_fmt(media)}* · mediana *{_fmt(mediana)}*")
         if por_prod:
             linhas.append("")
             linhas.append("*Por cliente:*")
@@ -861,11 +861,11 @@ def bot_ajuda(chat_id):
         "Comandos disponíveis:",
         "`/resumo` — visão geral rápida",
         "`/abertos` — chamados em aberto por cliente",
-        "`/criticos` — chamados críticos \\(\\+3 dias\\)",
+        "`/criticos` — chamados críticos (+3 dias)",
         "`/chamado 14412` — detalhes de um chamado",
         "`/cliente tegma` — chamados abertos de um cliente",
         "`/tendencias` — análise de tendência das últimas semanas",
-        "`/relatorio 01/07 05/07` — resumo do período \\(sem datas: últimos 7 dias\\)",
+        "`/relatorio 01/07 05/07` — resumo do período (sem datas: últimos 7 dias)",
         "`/ajuda` — esta mensagem",
     ]
     _reply(chat_id, "\n".join(linhas))
@@ -891,7 +891,7 @@ def _processar_comando(chat_id, text):
     elif cmd == "/relatorio":
         bot_relatorio(chat_id, arg)
     else:
-        _reply(chat_id, "⚠️ Comando não reconhecido\\. Use `/ajuda` para ver os disponíveis\\.")
+        _reply(chat_id, "⚠️ Comando não reconhecido. Use `/ajuda` para ver os disponíveis.")
 
 
 @app.route("/telegram/webhook", methods=["POST"])

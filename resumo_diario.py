@@ -155,12 +155,12 @@ def main():
     data_fmt   = agora.strftime("%d/%m/%Y")
 
     linhas = [
-        f"🌅 *Bom dia\\! Resumo — Recebe Mais*",
+        f"🌅 *Bom dia! Resumo — Recebe Mais*",
         f"📅 {dia_semana}, {data_fmt}",
         "",
         f"📋 *Em aberto agora:* {len(abertos)}",
         f"🆕 *Abertos ontem:* {len(abertos_ontem)}",
-        f"🔴 *Críticos \\(+{CRITICO_DIAS} dias\\):* {len(criticos)}",
+        f"🔴 *Críticos (+{CRITICO_DIAS} dias):* {len(criticos)}",
     ]
 
     if criticos:
@@ -171,7 +171,7 @@ def main():
             status_label = STATUS_LABEL.get(c["status"], "?")
             titulo = _esc_md(c["nome"][:45] + ("…" if len(c["nome"]) > 45 else ""))
             link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
-            linhas.append(f"• [\\#{c['id']}]({link}) — {_esc_md(c['cliente'])} | {titulo}")
+            linhas.append(f"• [#{c['id']}]({link}) — {_esc_md(c['cliente'])} | {titulo}")
             linhas.append(f"  _{status_label} · aberto há {c['dias']} dias_")
 
     linhas.append("")

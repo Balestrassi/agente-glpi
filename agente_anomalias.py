@@ -159,18 +159,18 @@ def main():
         print(f"  ANOMALIA: {cliente} — {len(ts)} chamados em {JANELA_MINUTOS} min")
         linhas = [
             f"🚨 *Possível incidente em massa — {_esc_md(cliente)}*", "",
-            f"*{len(ts)} chamados* abertos nos últimos {JANELA_MINUTOS} minutos\\.",
-            "Provavelmente é UM incidente sistêmico — avalie antes de triar um a um\\.", "",
+            f"*{len(ts)} chamados* abertos nos últimos {JANELA_MINUTOS} minutos.",
+            "Provavelmente é UM incidente sistêmico — avalie antes de triar um a um.", "",
         ]
         for t in ts[:6]:
             titulo = _esc_md(html.unescape(t.get("name") or "")[:45])
             hora   = (t.get("date_creation") or "")[11:16]
             linhas.append(
-                f"• [\\#{t['id']}]({GLPI_URL}/front/ticket.form.php?id={t['id']})"
+                f"• [#{t['id']}]({GLPI_URL}/front/ticket.form.php?id={t['id']})"
                 f" {hora} — {titulo}"
             )
         if len(ts) > 6:
-            linhas.append(f"_\\.\\.\\. e mais {len(ts) - 6} chamado(s)_")
+            linhas.append(f"_... e mais {len(ts) - 6} chamado(s)_")
         enviar_telegram("\n".join(linhas))
 
         alertados[cliente] = datetime.now(BRASILIA).isoformat()

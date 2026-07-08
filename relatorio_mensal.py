@@ -30,7 +30,7 @@ from reportlab.platypus import (
 # Importa utilitários compartilhados do relatório semanal
 from relatorio_automatico import (
     get_session, close_session, buscar_tickets_range,
-    eh_recebemai, produto, tipo,
+    eh_recebemai, produto, tipo, foi_resolvido_no_periodo,
     horas_uteis, fmt_hu,
     ultimo_tecnico_completo, requester_numeric_id, buscar_nome_usuario,
     AZUL_ESC, AZUL_MED, AZUL_CLA, VERDE, AMARELO, VERMELHO,
@@ -471,7 +471,8 @@ def main():
     try:
         tickets_ant = buscar_tickets_range(tok_ant, DATA_INI_ANT, DATA_FIM_ANT)
         total_ant   = len(tickets_ant)
-        resol_ant   = sum(1 for t in tickets_ant if t.get("status") in (5, 6))
+        resol_ant   = sum(1 for t in tickets_ant
+                          if foi_resolvido_no_periodo(t.get("solvedate") or "", DATA_FIM_ANT))
         taxa_ant    = round(resol_ant / total_ant * 100) if total_ant else 0
         comp        = {"total": total_ant, "resol": resol_ant, "taxa": taxa_ant}
         print(f"  Comparativo ({PERIODO_ANT}): {total_ant} tickets, {taxa_ant}% resolvidos")
@@ -489,11 +490,12 @@ def main():
          t.get("date_creation") or t.get("date", ""),
          t.get("date_mod", ""),
          t.get("status", 1),
-         produto(t))
+         produto(t),
+         t.get("solvedate") or "")
         for t in tickets_raw
     ]
 
-    for _, titulo, _, _, st, prod in TICKETS:
+    for _, titulo, _, _, st, prod, _solve in TICKETS:
         tp = tipo(titulo)
         por_status[st]   = por_status.get(st, 0) + 1
         por_prod[prod]   = por_prod.get(prod, 0) + 1
@@ -505,10 +507,11 @@ def main():
     try:
         DADOS   = {}
         RANKING = {}
-        resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, st, prod in TICKETS if st in (5, 6)]
+        resolvidos = [(tid, criacao, prod) for tid, _, criacao, _, st, prod, solve in TICKETS
+                      if foi_resolvido_no_periodo(solve, DATA_FIM)]
         for i, (tid, criacao, prod) in enumerate(resolvidos):
             req_id        = requester_numeric_id(tok2, tid)
-            ult_data, uid = ultimo_tecnico_completo(tok2, tid, req_id)
+            ult_data, uid, _ = ultimo_tecnico_completo(tok2, tid, req_id)
             DADOS[tid]    = {"criacao": criacao, "ultimo_tecnico": ult_data, "tecnico_id": uid}
             if uid:
                 if uid not in RANKING:
@@ -525,8 +528,8 @@ def main():
     # Calcula tempos
     tp_prod_tecnico = {}
     tp_prod_ciclo   = {}
-    for tid, titulo, criacao, atualizacao, st, prod in TICKETS:
-        if st not in (5, 6):
+    for tid, titulo, criacao, atualizacao, st, prod, solve in TICKETS:
+        if not foi_resolvido_no_periodo(solve, DATA_FIM):
             continue
         d          = DADOS.get(tid, {})
         dt_criacao = d.get("criacao") or criacao
@@ -542,7 +545,7 @@ def main():
             RANKING[uid]["tempos_ciclo"].append(h_ciclo)
 
     TOTAL      = len(TICKETS)
-    RESOL      = por_status.get(5, 0) + por_status.get(6, 0)
+    RESOL      = sum(1 for *_, solve in TICKETS if foi_resolvido_no_periodo(solve, DATA_FIM))
     TAXA_RESOL = round(RESOL / TOTAL * 100) if TOTAL else 0
 
     TEMPO_GERAL_CICLO   = sum(hc for hc, *_ in tempos) / len(tempos) if tempos else 0

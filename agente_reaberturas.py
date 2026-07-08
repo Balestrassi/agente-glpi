@@ -214,11 +214,11 @@ def main():
             return
 
         # Monta alerta Telegram
-        linhas = [f"🔄 *{len(reabertos)} chamado(s) reaberto(s)\\!*\n"]
+        linhas = [f"🔄 *{len(reabertos)} chamado(s) reaberto(s)!*\n"]
         for c in reabertos:
             link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
             titulo_esc = _esc_md(c['titulo'])
-            linhas.append(f"• [\\#{c['id']}]({link}) — *{_esc_md(c['cli'])}*")
+            linhas.append(f"• [#{c['id']}]({link}) — *{_esc_md(c['cli'])}*")
             linhas.append(f"  {titulo_esc[:55]}")
             linhas.append(f"  _Resolvido em {c['data_resolucao']} → Status: {c['status']}_")
 

@@ -28,9 +28,9 @@ NIVEL_HORAS  = {1: 24, 2: 48, 3: 72}
 STATUS_NOME  = {1: "Novo", 2: "Em andamento", 4: "Pendente"}
 NIVEL_EMOJI  = {1: "⚠️",  2: "🚨",  3: "🔴"}
 NIVEL_LABEL  = {
-    1: "Sem resposta há \\+24h",
-    2: "URGENTE — Sem resposta há \\+48h",
-    3: "CRÍTICO — Sem resposta há \\+72h",
+    1: "Sem resposta há +24h",
+    2: "URGENTE — Sem resposta há +48h",
+    3: "CRÍTICO — Sem resposta há +72h",
 }
 
 def _esc_md(texto):
@@ -265,7 +265,7 @@ def main():
             linhas = [f"{NIVEL_EMOJI[nivel]} *{len(chamados)} chamado(s) — {NIVEL_LABEL[nivel]}*\n"]
             for c in chamados:
                 link = f"{GLPI_URL}/front/ticket.form.php?id={c['id']}"
-                linhas.append(f"• [\\#{c['id']}]({link}) — {_esc_md(c['nome'])}")
+                linhas.append(f"• [#{c['id']}]({link}) — {_esc_md(c['nome'])}")
                 linhas.append(f"  _{c['status']} · sem resposta há {c['tempo']}_")
 
             linhas.append(f"\n_Verificado em {agora_brt.strftime('%d/%m/%Y %H:%M')} BRT_")

@@ -863,7 +863,7 @@ def main():
                 RANKING[uid]["tempos_tecnico"].append(h_tecnico)
                 RANKING[uid]["tempos_ciclo"].append(h_ciclo)
         else:
-            nao_resolvidos.append((tid, titulo, criacao, urg, STATUS_NOME[st]))
+            nao_resolvidos.append((tid, titulo, criacao, urg, STATUS_NOME.get(st, str(st))))
 
     TOTAL      = len(TICKETS)
     RESOL      = sum(1 for *_, solve in TICKETS if foi_resolvido_no_periodo(solve, DATA_FIM))

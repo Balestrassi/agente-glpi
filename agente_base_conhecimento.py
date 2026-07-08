@@ -369,8 +369,12 @@ def main():
                 print(f"    Similar #{s['id']} — solução: {solucao[:60]}...")
 
             html_sugestao = formatar_sugestao_html(similares)
-            postar_sugestao_privada(tok, tid, html_sugestao)
-            print(f"    Sugestão privada postada no chamado #{tid}")
+            try:
+                postar_sugestao_privada(tok, tid, html_sugestao)
+                print(f"    Sugestão privada postada no chamado #{tid}")
+            except Exception as e:
+                print(f"    [!] Erro ao postar sugestão no #{tid}: {e} — será tentado novamente no próximo ciclo")
+                continue
 
             processados.add(tid)
 

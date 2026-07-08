@@ -252,13 +252,17 @@ def main():
         for t in novos:
             tid    = t["id"]
             titulo = (t.get("name") or f"Chamado #{tid}").strip()
-            req_id = t.get("users_id_recipient")
 
             print(f"\n  #{tid} — {titulo[:60]}")
 
-            # Busca entities_id numérico (sem expand_dropdowns)
-            t_raw          = api_get(f"Ticket/{tid}", tok)
+            # Busca o ticket sem expand_dropdowns: entities_id e
+            # users_id_recipient precisam vir como IDs numéricos aqui —
+            # com expand_dropdowns (usado em buscar_resolvidos) esses campos
+            # viram nome/texto, o que quebra a comparação
+            # "f.get('users_id') != requester_id" dentro de buscar_solucao.
+            t_raw           = api_get(f"Ticket/{tid}", tok)
             entities_id_num = t_raw.get("entities_id") if isinstance(t_raw, dict) else None
+            req_id          = t_raw.get("users_id_recipient") if isinstance(t_raw, dict) else None
 
             solucao, fonte = buscar_solucao(tok, tid, req_id)
 
@@ -266,6 +270,7 @@ def main():
                 print(f"    → Sem solução válida, pulando")
                 processados.add(tid)
                 pulados += 1
+                salvar_processados(processados)
                 continue
 
             print(f"    → Solução via {fonte}: {solucao[:80]}...")
@@ -278,8 +283,10 @@ def main():
                 print(f"    ✗ Falha ao criar artigo (permissão ou API indisponível)")
 
             processados.add(tid)
-
-        salvar_processados(processados)
+            # Salva a cada ticket: se uma falha de rede interromper o loop no
+            # meio, os artigos já criados não voltam a ser reprocessados
+            # (evita artigo de KB duplicado no próximo run).
+            salvar_processados(processados)
         print(f"\n  Resumo: {criados} artigo(s) criado(s), {pulados} sem solução registrada")
 
     finally:
