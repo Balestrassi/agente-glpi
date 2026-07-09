@@ -1,8 +1,11 @@
 name: Agente RecebeMais GLPI
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
+  # Disparo unico via cron-job.org (job "Agente GLPI"), que chama a API
+  # workflow_dispatch a cada 5 min. O 'schedule:' nativo do GitHub foi
+  # removido em 09/07/2026 para eliminar o disparo em dobro (o cron nativo
+  # rodava junto com o cron-job.org). O cron-job.org e mais pontual que o
+  # schedule nativo, que atrasa em repos com pouca atividade.
   workflow_dispatch:
 
 jobs:
