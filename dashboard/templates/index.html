@@ -381,6 +381,11 @@
     </div>
 
     <div class="card" style="margin-top:14px;">
+      <div class="card-title">Tempo médio por semana <span class="card-title-hint">horas úteis · menor é melhor</span></div>
+      <canvas id="chart-tempos" height="120"></canvas>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
       <div class="card-title">Mapa de calor — quando os chamados chegam</div>
       <div id="heatmap-container"><div class="empty">Carregando...</div></div>
     </div>
@@ -804,13 +809,19 @@ function renderComparativo(historico) {
   const atual    = historico[historico.length - 1];
   const anterior = historico[historico.length - 2];
 
-  function delta(a, b, sufixo) {
+  // inverso=true → uma QUEDA no valor é melhoria (verde). Usado para
+  // métricas de tempo, onde menos horas é melhor.
+  function delta(a, b, sufixo, inverso) {
     const d = a - b;
-    if (Math.abs(d) < 0.5) return `<span class="delta-flat">↔ estável</span>`;
-    const cls = d > 0 ? "delta-up" : "delta-down";
+    const casas = sufixo === "h" ? 1 : 0;
+    const lim   = sufixo === "h" ? 0.1 : 0.5;
+    if (Math.abs(d) < lim) return `<span class="delta-flat">↔ estável</span>`;
+    const melhora = inverso ? d < 0 : d > 0;
+    const cls  = melhora ? "delta-up" : "delta-down";
     const seta = d > 0 ? "↑" : "↓";
-    return `<span class="${cls}">${seta} ${Math.abs(d).toFixed(0)}${sufixo}</span>`;
+    return `<span class="${cls}">${seta} ${Math.abs(d).toFixed(casas)}${sufixo}</span>`;
   }
+  const h = v => (v == null ? 0 : v).toFixed(1);
 
   el.innerHTML = `
     <div class="compare-grid">
@@ -819,6 +830,8 @@ function renderComparativo(historico) {
         <div class="compare-metric"><div class="compare-v">${anterior.total}</div><div class="compare-l">Total</div></div>
         <div class="compare-metric"><div class="compare-v">${anterior.resolvidos}</div><div class="compare-l">Resolvidos</div></div>
         <div class="compare-metric"><div class="compare-v">${anterior.taxa.toFixed(0)}%</div><div class="compare-l">Taxa</div></div>
+        <div class="compare-metric"><div class="compare-v">${h(anterior.t_tecnico)}h</div><div class="compare-l">T. Técnico</div></div>
+        <div class="compare-metric"><div class="compare-v">${h(anterior.t_ciclo)}h</div><div class="compare-l">T. Ciclo</div></div>
       </div>
       <div class="compare-arrow">→</div>
       <div class="compare-col">
@@ -826,6 +839,8 @@ function renderComparativo(historico) {
         <div class="compare-metric"><div class="compare-v">${atual.total}</div><div class="compare-l">Total ${delta(atual.total, anterior.total, '')}</div></div>
         <div class="compare-metric"><div class="compare-v">${atual.resolvidos}</div><div class="compare-l">Resolvidos ${delta(atual.resolvidos, anterior.resolvidos, '')}</div></div>
         <div class="compare-metric"><div class="compare-v">${atual.taxa.toFixed(0)}%</div><div class="compare-l">Taxa ${delta(atual.taxa, anterior.taxa, 'pp')}</div></div>
+        <div class="compare-metric"><div class="compare-v">${h(atual.t_tecnico)}h</div><div class="compare-l">T. Técnico ${delta(atual.t_tecnico, anterior.t_tecnico, 'h', true)}</div></div>
+        <div class="compare-metric"><div class="compare-v">${h(atual.t_ciclo)}h</div><div class="compare-l">T. Ciclo ${delta(atual.t_ciclo, anterior.t_ciclo, 'h', true)}</div></div>
       </div>
     </div>`;
 }
@@ -855,6 +870,7 @@ async function consultarPeriodo() {
 // ── Gráficos históricos ─────────────────────────────────────────────
 let chartVolume = null;
 let chartTaxa   = null;
+let chartTempos = null;
 
 async function carregarHistorico() {
   try {
@@ -868,6 +884,8 @@ async function carregarHistorico() {
     const totais     = dados.map(d => d.total);
     const resolvidos = dados.map(d => d.resolvidos);
     const taxas      = dados.map(d => d.taxa);
+    const tTecnico   = dados.map(d => d.t_tecnico);
+    const tCiclo     = dados.map(d => d.t_ciclo);
     const corGrid = document.documentElement.getAttribute("data-theme") === "dark" ? "#2A3547" : "#f0f2f5";
     const corTexto = document.documentElement.getAttribute("data-theme") === "dark" ? "#8B98AC" : "#666";
     const baseOpts = {
@@ -892,6 +910,15 @@ async function carregarHistorico() {
       type: "line",
       data: { labels, datasets: [{ label: "Taxa de resolução %", data: taxas, borderColor: "#2563eb", backgroundColor: "rgba(37,99,235,0.08)", borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: "#2563eb", fill: true, tension: 0.35 }] },
       options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } } } }
+    });
+    if (chartTempos) chartTempos.destroy();
+    chartTempos = new Chart(document.getElementById("chart-tempos"), {
+      type: "line",
+      data: { labels, datasets: [
+        { label: "T. Técnico (h)", data: tTecnico, borderColor: "#E67E22", backgroundColor: "rgba(230,126,34,0.08)", borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: "#E67E22", fill: false, tension: 0.35 },
+        { label: "T. Ciclo (h)",   data: tCiclo,   borderColor: "#7F77DD", backgroundColor: "rgba(127,119,221,0.08)", borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: "#7F77DD", fill: false, tension: 0.35 },
+      ]},
+      options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "h" } } } }
     });
   } catch(e) {
     console.warn("Histórico indisponível:", e);
