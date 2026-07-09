@@ -1,16 +1,17 @@
 """
 Agente de Follow-up ao Cliente — GLPI
-Quando um chamado Recebe Mais fica sem NENHUMA movimentação real da nossa
-equipe (excluindo mensagens automáticas), posta uma mensagem de
-acompanhamento diretamente no chamado, visível ao cliente, escalonando o
-tom conforme o tempo passa:
-  • Nível 1 — 2h sem movimentação da equipe
-  • Nível 2 — 4h sem movimentação da equipe
-  • Nível 3 — 8h sem movimentação da equipe
+Acompanha chamados Recebe Mais que têm APENAS o primeiro atendimento
+automático — ou seja, ninguém (nem o cliente nem um técnico) interagiu
+além da mensagem automática de acolhimento. Nesses casos posta uma
+mensagem de acompanhamento visível ao cliente, escalonando o tom conforme
+o tempo desde a ABERTURA do chamado:
+  • Nível 1 — 2h desde a abertura, ainda só com o primeiro atendimento
+  • Nível 2 — 4h desde a abertura, ainda só com o primeiro atendimento
+  • Nível 3 — 8h desde a abertura, ainda só com o primeiro atendimento
 
-Cada nível é postado uma única vez. Se a equipe responder de verdade
-(followup humano, sem a assinatura automática), o relógio zera e o
-chamado sai do cache — voltará a escalar do nível 1 se ficar parado de novo.
+Cada nível é postado uma única vez. Assim que QUALQUER followup não
+automático aparece (resposta de técnico OU do próprio cliente), o chamado
+deixa de ser elegível e sai do cache — nenhum follow-up adicional é postado.
 """
 
 import os
@@ -123,26 +124,24 @@ def buscar_abertos(tok):
             tickets.extend(resultado)
     return [t for t in tickets if eh_recebemai(t)]
 
-def ultimo_toque_real_da_equipe(tok, tid):
+def ticket_apenas_primeiro_atendimento(tok, tid):
     """
-    Retorna a data do último followup que representa uma resposta HUMANA
-    da nossa equipe — excluindo qualquer mensagem automática (identificada
-    pela assinatura padrão) e mensagens do próprio solicitante.
+    True somente se o chamado tiver APENAS mensagens automáticas nossas
+    (o "primeiro atendimento" e/ou follow-ups já postados por este agente,
+    todos com a assinatura padrão) — ou seja, ninguém, nem o cliente nem
+    um técnico, adicionou qualquer outro followup.
+
+    Basta UM followup sem a assinatura automática (seja do cliente ou de
+    um técnico) para o chamado deixar de ser elegível ao acompanhamento.
     """
     followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
-    if not isinstance(followups, list) or not followups:
-        return None
+    if not isinstance(followups, list):
+        return False
     for f in followups:
         conteudo = f.get("content", "") or ""
-        if ASSINATURA_AUTOMATICA in conteudo:
-            continue
-        # followups já vêm ordenados; o primeiro não-automático é o mais recente
-        data_str = f.get("date") or f.get("date_creation")
-        try:
-            return datetime.strptime(data_str[:19], "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            continue
-    return None
+        if ASSINATURA_AUTOMATICA not in conteudo:
+            return False
+    return True
 
 def horas_desde_brt(dt):
     if dt is None:
@@ -194,23 +193,25 @@ def main():
             tid = str(t["id"])
             ids_abertos.add(tid)
 
-            ultimo = ultimo_toque_real_da_equipe(tok, t["id"])
-            if ultimo is not None:
-                horas_ref = horas_desde_brt(ultimo)
-            else:
-                criacao = t.get("date_creation") or ""
-                try:
-                    dt_criacao = datetime.strptime(criacao[:19], "%Y-%m-%d %H:%M:%S")
-                    horas_ref = horas_desde_brt(dt_criacao)
-                except Exception:
-                    continue
+            # Só acompanha chamados que têm APENAS o primeiro atendimento
+            # automático. Qualquer interação (do cliente ou de um técnico)
+            # tira o chamado do acompanhamento.
+            if not ticket_apenas_primeiro_atendimento(tok, t["id"]):
+                cache.pop(tid, None)
+                continue
+
+            # Escalonamento medido a partir da criação do chamado
+            criacao = t.get("date_creation") or ""
+            try:
+                dt_criacao = datetime.strptime(criacao[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                continue
+            horas_ref = horas_desde_brt(dt_criacao)
 
             nivel_atual = nivel_escalada(horas_ref)
             nivel_cache = cache.get(tid, {}).get("nivel", 0)
 
             if nivel_atual == 0:
-                # Equipe respondeu de verdade — reseta o acompanhamento
-                cache.pop(tid, None)
                 continue
 
             if nivel_atual > nivel_cache:
@@ -222,7 +223,7 @@ def main():
                     "titulo": html.unescape(t.get("name", "") or ""),
                     "horas": round(horas_ref, 1),
                 })
-                print(f"  Chamado #{t['id']}: follow-up nível {nivel_atual} postado ({horas_ref:.1f}h sem movimentação)")
+                print(f"  Chamado #{t['id']}: follow-up nível {nivel_atual} postado ({horas_ref:.1f}h desde a abertura, só com primeiro atendimento)")
 
         # Remove do cache chamados que não estão mais abertos
         for tid in list(cache.keys()):
@@ -237,7 +238,7 @@ def main():
                 link = f"{GLPI_URL}/front/ticket.form.php?id={p['id']}"
                 titulo_esc = p['titulo'].replace('_', '\\_').replace('*', '\\*')[:60]
                 linhas.append(f"• [\\#{p['id']}]({link}) {NIVEL_EMOJI[p['nivel']]} nível {p['nivel']} — {titulo_esc}")
-                linhas.append(f"  _{p['horas']}h sem movimentação da equipe_")
+                linhas.append(f"  _{p['horas']}h desde a abertura, ainda só com o primeiro atendimento_")
             linhas.append(f"\n_Verificado em {agora_brt.strftime('%d/%m/%Y %H:%M')} BRT_")
             enviar_telegram("\n".join(linhas))
         else:
