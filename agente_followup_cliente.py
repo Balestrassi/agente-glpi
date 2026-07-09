@@ -15,7 +15,6 @@ deixa de ser elegível e sai do cache — nenhum follow-up adicional é postado.
 """
 
 import os
-import re
 import json
 import html
 import requests
@@ -124,21 +123,61 @@ def buscar_abertos(tok):
             tickets.extend(resultado)
     return [t for t in tickets if eh_recebemai(t)]
 
-def ticket_apenas_primeiro_atendimento(tok, tid):
+def _fetch_followups(tok, tid):
+    """Busca os followups do chamado. Retorna a lista, ou None se a busca
+    falhar por qualquer motivo (rede, status != 200, JSON inválido).
+    None é tratado como 'não sei' e leva ao fail-safe (não postar)."""
+    try:
+        r = requests.get(
+            f"{GLPI_URL}/apirest.php/Ticket/{tid}/ITILFollowup",
+            headers=_h(tok),
+            params={"range": "0-100", "sort": "date_creation", "order": "ASC"},
+            timeout=30,
+        )
+    except Exception:
+        return None
+    if r.status_code not in (200, 206):
+        return None
+    try:
+        d = r.json()
+    except Exception:
+        return None
+    return d if isinstance(d, list) else None
+
+
+def _requester_id(tok, tid):
+    """ID numérico do solicitante do chamado (sem expand_dropdowns, para vir
+    o id e não o nome). Retorna None se não conseguir determinar."""
+    t = api_get(f"Ticket/{tid}", tok)
+    if isinstance(t, dict):
+        return t.get("users_id_recipient")
+    return None
+
+
+def ticket_apenas_primeiro_atendimento(tok, tid, requester_id):
     """
     True somente se o chamado tiver APENAS mensagens automáticas nossas
     (o "primeiro atendimento" e/ou follow-ups já postados por este agente,
     todos com a assinatura padrão) — ou seja, ninguém, nem o cliente nem
     um técnico, adicionou qualquer outro followup.
 
-    Basta UM followup sem a assinatura automática (seja do cliente ou de
-    um técnico) para o chamado deixar de ser elegível ao acompanhamento.
+    Fail-safe: se a busca dos followups falhar (None), retorna False — na
+    dúvida, NÃO posta. Também retorna False se não houver nenhum followup
+    (nem o primeiro atendimento ainda postado).
+
+    Um followup desqualifica o chamado se:
+      - for do próprio solicitante (mesmo que cite nossa assinatura numa
+        resposta por e-mail que reproduz a mensagem anterior), ou
+      - não contiver a assinatura automática (resposta real de um técnico).
     """
-    followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
-    if not isinstance(followups, list):
+    followups = _fetch_followups(tok, tid)
+    if not followups:  # None (erro) ou lista vazia
         return False
     for f in followups:
         conteudo = f.get("content", "") or ""
+        autor    = f.get("users_id")
+        if requester_id is not None and autor == requester_id:
+            return False
         if ASSINATURA_AUTOMATICA not in conteudo:
             return False
     return True
@@ -155,12 +194,17 @@ def nivel_escalada(horas):
     return 0
 
 def postar_followup(tok, tid, mensagem):
-    requests.post(
-        f"{GLPI_URL}/apirest.php/ITILFollowup",
-        headers={**_h(tok), "Content-Type": "application/json"},
-        json={"input": {"items_id": tid, "itemtype": "Ticket", "content": mensagem}},
-        timeout=15,
-    )
+    """Posta o followup e retorna True só se o GLPI confirmar (200/201)."""
+    try:
+        r = requests.post(
+            f"{GLPI_URL}/apirest.php/ITILFollowup",
+            headers={**_h(tok), "Content-Type": "application/json"},
+            json={"input": {"items_id": tid, "itemtype": "Ticket", "content": mensagem}},
+            timeout=15,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 def enviar_telegram(texto):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -196,7 +240,8 @@ def main():
             # Só acompanha chamados que têm APENAS o primeiro atendimento
             # automático. Qualquer interação (do cliente ou de um técnico)
             # tira o chamado do acompanhamento.
-            if not ticket_apenas_primeiro_atendimento(tok, t["id"]):
+            requester_id = _requester_id(tok, t["id"])
+            if not ticket_apenas_primeiro_atendimento(tok, t["id"], requester_id):
                 cache.pop(tid, None)
                 continue
 
@@ -211,19 +256,23 @@ def main():
             nivel_atual = nivel_escalada(horas_ref)
             nivel_cache = cache.get(tid, {}).get("nivel", 0)
 
-            if nivel_atual == 0:
+            if nivel_atual == 0 or nivel_atual <= nivel_cache:
                 continue
 
-            if nivel_atual > nivel_cache:
-                mensagem = MENSAGENS[nivel_atual]
-                postar_followup(tok, t["id"], mensagem)
+            # Só grava no cache e reporta se o GLPI confirmar a postagem.
+            # Salva o cache logo após postar (incremental) para não repostar
+            # o mesmo nível caso o processo caia antes do salvamento final.
+            if postar_followup(tok, t["id"], MENSAGENS[nivel_atual]):
                 cache[tid] = {"nivel": nivel_atual, "ts": agora_brt.isoformat()}
+                salvar_cache(cache)
                 postados.append({
                     "id": t["id"], "nivel": nivel_atual,
                     "titulo": html.unescape(t.get("name", "") or ""),
                     "horas": round(horas_ref, 1),
                 })
                 print(f"  Chamado #{t['id']}: follow-up nível {nivel_atual} postado ({horas_ref:.1f}h desde a abertura, só com primeiro atendimento)")
+            else:
+                print(f"  Chamado #{t['id']}: FALHA ao postar follow-up nível {nivel_atual} — será tentado na próxima execução")
 
         # Remove do cache chamados que não estão mais abertos
         for tid in list(cache.keys()):
