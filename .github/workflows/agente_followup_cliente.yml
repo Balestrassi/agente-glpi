@@ -1,0 +1,46 @@
+name: Agente Follow-up Cliente GLPI
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # a cada 15 minutos (janelas de 2h/4h/8h)
+  workflow_dispatch:
+
+jobs:
+  followup-cliente:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Restaurar cache de follow-ups
+        uses: actions/cache@v4
+        with:
+          path: followup_cliente_cache.json
+          key: followup-cliente-${{ github.run_id }}
+          restore-keys: |
+            followup-cliente-
+
+      - name: Executar agente de follow-up ao cliente
+        env:
+          GLPI_URL: ${{ secrets.GLPI_URL }}
+          GLPI_APP_TOKEN: ${{ secrets.GLPI_APP_TOKEN }}
+          GLPI_USER_TOKEN: ${{ secrets.GLPI_USER_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python agente_followup_cliente.py
+
+      - name: Salvar cache de follow-ups
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: followup_cliente_cache.json
+          key: followup-cliente-${{ github.run_id }}
