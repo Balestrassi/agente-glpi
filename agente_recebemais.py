@@ -171,6 +171,12 @@ def ja_tem_primeiro_atendimento(session_token, chamado_id):
     return False
 
 
+def dentro_horario_comercial():
+    agora = datetime.now(BRASILIA)
+    # Segunda=0 ... Sexta=4; 8h <= hora < 18h
+    return agora.weekday() < 5 and 8 <= agora.hour < 18
+
+
 def chamado_e_recente(chamado, horas=2):
     """
     Retorna True só se o chamado foi CRIADO há poucas horas.
@@ -270,7 +276,7 @@ def main():
     session = get_session()
     chamados = buscar_chamados_recebemais(session)
 
-    # Primeira execucao: registra tudo como visto sem notificar
+    # Primeira execucao: registra tudo como visto sem notificar (independe do horario)
     if not chamados_vistos and chamados:
         chamados_vistos = {c["id"] for c in chamados}
         for c in chamados:
@@ -278,6 +284,12 @@ def main():
             followups_vistos[str(c["id"])] = followups[0]["id"] if followups else 0
         salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
         print(f"{len(chamados_vistos)} chamados existentes registrados.")
+        close_session(session)
+        return
+
+    if not dentro_horario_comercial():
+        agora = datetime.now(BRASILIA)
+        print(f"[{agora.strftime('%H:%M')}] Fora do horario comercial (08h-18h, seg-sex). Nenhuma acao.")
         close_session(session)
         return
 
@@ -298,6 +310,9 @@ def main():
         chamados_vistos.add(cid)
         followups = buscar_followups(session, cid)
         followups_vistos[str(cid)] = followups[0]["id"] if followups else 0
+        # Salva a cada chamado: se uma falha de rede interromper o loop no
+        # meio, notificacoes ja enviadas nao sao reenviadas no proximo run.
+        salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
 
     # Verifica respostas de clientes em chamados ja conhecidos
     for chamado in chamados:
@@ -306,8 +321,8 @@ def main():
             ultimo_id = followups_vistos.get(chave, 0)
             novo_ultimo_id = verificar_resposta_cliente(session, chamado, ultimo_id)
             followups_vistos[chave] = novo_ultimo_id
+            salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
 
-    salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
     close_session(session)
 
     if not novos:
