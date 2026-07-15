@@ -300,9 +300,7 @@ def main():
         cid = chamado["id"]
         status = chamado.get("status")
         if status != 1:
-            print(f"  Chamado #{cid} visto pela primeira vez já em status {status} (não é 'Novo') — registrado sem primeiro atendimento.")
-        elif not chamado_e_recente(chamado):
-            print(f"  Chamado #{cid} voltou a 'Novo' mas foi criado há mais tempo — provável reabertura, não é chamado novo. Ignorando primeiro atendimento.")
+            print(f"  Chamado #{cid} visto pela primeira vez já em status {status} — registrado sem primeiro atendimento.")
         elif ja_tem_primeiro_atendimento(session, cid):
             print(f"  Chamado #{cid} já tem primeiro atendimento — adicionando ao cache sem reenviar")
         else:
