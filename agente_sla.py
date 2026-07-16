@@ -97,23 +97,53 @@ def api_get(path, tok, params=None):
     return []
 
 # ── Lógica de SLA ─────────────────────────────────────────────────────
-def ultimo_comentario_tecnico(tok, tid, requester_id):
-    followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
-    if not isinstance(followups, list) or not followups:
-        return None
-    tecnicos = [
-        f for f in followups
-        if f.get("users_id") != requester_id
-        and "Base de Conhecimento" not in (f.get("content") or "")
-        and "Obrigado pelo seu contato" not in (f.get("content") or "")
-    ]
-    if not tecnicos:
-        return None
-    ult = tecnicos[-1].get("date") or tecnicos[-1].get("date_creation")
+def analisar_followups(tok, tid, requester_id, dt_criacao_str):
+    """
+    Retorna (ult_cli, ult_tec):
+    - ult_cli: datetime da última mensagem do CLIENTE (criação do chamado ou
+      último followup do solicitante) — é o marco a partir do qual medimos
+      se o técnico já respondeu.
+    - ult_tec: datetime do último followup de um técnico (ou None se nenhum).
+      Mensagens automáticas ("Obrigado pelo seu contato", "Base de Conhecimento")
+      são ignoradas — não contam como resposta real do técnico.
+
+    Só devemos alertar sobre SLA quando o cliente deixou uma mensagem sem
+    resposta do técnico (ult_cli > ult_tec, ou ult_tec is None).
+    Se o técnico já respondeu à última mensagem do cliente (ult_tec >= ult_cli),
+    a bola está no cliente — não é uma pendência do técnico.
+    """
     try:
-        return datetime.strptime(ult[:19], "%Y-%m-%d %H:%M:%S")
+        dt_base = datetime.strptime(dt_criacao_str[:19], "%Y-%m-%d %H:%M:%S")
     except Exception:
-        return None
+        dt_base = datetime.min
+
+    followups = api_get(f"Ticket/{tid}/ITILFollowup", tok)
+    if not isinstance(followups, list):
+        return dt_base, None
+
+    ult_cli = dt_base
+    ult_tec = None
+
+    for f in followups:
+        autor   = f.get("users_id")
+        content = f.get("content") or ""
+        date_str = f.get("date") or f.get("date_creation") or ""
+        try:
+            dt = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+
+        if autor == requester_id:
+            if dt > ult_cli:
+                ult_cli = dt
+        elif (
+            "Base de Conhecimento" not in content
+            and "Obrigado pelo seu contato" not in content
+        ):
+            if ult_tec is None or dt > ult_tec:
+                ult_tec = dt
+
+    return ult_cli, ult_tec
 
 def horas_desde_brt(dt_str):
     """Calcula horas desde dt_str (data BRT do GLPI) até agora BRT."""
@@ -216,17 +246,16 @@ def main():
             if horas_aberto < NIVEL_HORAS[1]:
                 continue
 
-            req_id  = get_requester_id_numerico(tok, tid)
-            ult_tec = ultimo_comentario_tecnico(tok, tid, req_id)
+            req_id = get_requester_id_numerico(tok, tid)
+            ult_cli, ult_tec = analisar_followups(tok, tid, req_id, criacao)
 
-            if ult_tec is not None:
-                horas_sem = (agora_brt - ult_tec).total_seconds() / 3600
-                if horas_sem < NIVEL_HORAS[1]:
-                    alertados.pop(str(tid), None)
-                    continue
-                horas_ref = horas_sem
-            else:
-                horas_ref = horas_aberto
+            if ult_tec is not None and ult_tec >= ult_cli:
+                # Técnico já respondeu à última mensagem do cliente → sem pendência de SLA
+                alertados.pop(str(tid), None)
+                continue
+
+            # Horas desde a última mensagem do cliente sem resposta do técnico
+            horas_ref = (agora_brt - ult_cli).total_seconds() / 3600
 
             nivel = nivel_escalada(horas_ref)
             if nivel == 0 or not deve_alertar(str(tid), nivel, alertados, agora_utc):
