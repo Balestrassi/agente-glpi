@@ -1,8 +1,10 @@
 name: Agente Follow-up Cliente GLPI
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'   # a cada 15 minutos (janelas de 2h/4h/8h)
+  # Disparo via cron-job.org a cada 15 min (workflow_dispatch).
+  # O 'schedule:' nativo foi removido — igual ao agente.yml — porque
+  # o cron nativo do GitHub para repos com pouca atividade pode
+  # atrasar horas ou simplesmente parar de disparar.
   workflow_dispatch:
 
 jobs:
