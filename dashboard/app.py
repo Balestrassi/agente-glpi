@@ -511,7 +511,7 @@ def _parse_horas(valor):
         except ValueError:
             return 0.0
     try:
-        return float(valor)
+        return float(valor.replace(",", "."))
     except ValueError:
         return 0.0
 
