@@ -117,24 +117,25 @@ def eh_recebemai(ticket):
     cat = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in ent or "recebemai" in cat or "recebe mais" in cat
 
-# Profundidade do nível de cliente na hierarquia de entidades do GLPI.
-# Definida em main() após inspecionar os tickets reais; usada em produto()
-# para agrupar sub-entidades sob o mesmo cliente (ex: Messiânica > Messianica
-# → ambas ficam como "Messiânica").
-_PROF_CLI: int = 0
-
 def produto(ticket):
     """Extrai o nome do cliente a partir do caminho de entidade do GLPI.
-    O GLPI retorna '>' como '&#62;' quando expand_dropdowns=True, então
-    é necessário decodificar HTML antes de separar os segmentos.
-    Usa _PROF_CLI para fixar o nível de extração e mesclar sub-entidades."""
+
+    Estrutura real do GLPI (mapeada via API em 21/07/2026):
+      Luzcon > Recebe Mais > [Cliente]   ← clientes da linha Recebe Mais
+      Luzcon > Clientes   > [Cliente]   ← outros clientes com tickets RM
+      Luzcon > Clientes   > Messiânica > Messianica  ← sub-entidade (profundidade 4)
+
+    Todos os clientes reais ficam no 3º segmento (índice 2).
+    Entidades mais profundas (ex: Messianica) mapeiam para partes[2] = "Messiânica".
+    Entidades superficiais (Luzcon, Luzcon > Clientes) ficam como "Recebe Mais (Geral)".
+
+    O GLPI retorna '>' como '&#62;' com expand_dropdowns=True;
+    html.unescape() é obrigatório antes do split."""
     ent    = html.unescape((ticket.get("entities_id") or "").strip())
     partes = [p.strip() for p in ent.split(">") if p.strip()]
-    if not partes:
-        return "Sem entidade"
-    idx = min((_PROF_CLI or len(partes)) - 1, len(partes) - 1)
-    cli = partes[idx]
-    return "Recebe Mais (Geral)" if cli.lower() == "recebe mais" else cli
+    if len(partes) < 3:
+        return "Recebe Mais (Geral)"
+    return partes[2]
 
 def tipo(titulo):
     tl = titulo.lower()
@@ -670,20 +671,6 @@ def main():
         close_session(tok)
 
     print(f"  Período atual: {len(raw)} tickets | Anterior: {len(raw_ant)} tickets")
-
-    # Determina a profundidade do nível de cliente na hierarquia de entidades.
-    # GLPI retorna '>' como '&#62;'; decodificamos antes de contar segmentos.
-    # Usamos o mínimo (ignorando depth 1 = raiz) para que sub-entidades mais
-    # profundas sejam agrupadas sob o mesmo cliente-pai.
-    global _PROF_CLI
-    depths = []
-    for t in raw:
-        ent    = html.unescape((t.get("entities_id") or "").strip())
-        partes = [p.strip() for p in ent.split(">") if p.strip()]
-        if len(partes) >= 2:
-            depths.append(len(partes))
-    _PROF_CLI = min(depths) if depths else 3
-    print(f"  Profundidade de entidade cliente detectada: {_PROF_CLI}")
 
     TICKETS     = parse_tickets(raw)
     TICKETS_ANT = parse_tickets(raw_ant)

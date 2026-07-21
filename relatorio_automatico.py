@@ -108,12 +108,12 @@ def eh_recebemai(ticket):
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
 
 def produto(ticket):
-    entidade = (ticket.get("entities_id") or "").strip()
-    if not entidade:
-        return "Sem entidade"
-    partes  = [p.strip() for p in entidade.split(">")]
-    cliente = partes[-1]
-    return "Recebe Mais (Geral)" if cliente.lower() == "recebe mais" else cliente
+    import html as _html
+    ent    = _html.unescape((ticket.get("entities_id") or "").strip())
+    partes = [p.strip() for p in ent.split(">") if p.strip()]
+    if len(partes) < 3:
+        return "Recebe Mais (Geral)"
+    return partes[2]
 
 def tipo(titulo):
     tl = titulo.lower()
