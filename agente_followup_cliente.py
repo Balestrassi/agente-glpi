@@ -37,6 +37,14 @@ ASSINATURA_AUTOMATICA = "Equipe de Suporte Recebe Mais"
 
 NIVEL_HORAS = {1: 2, 2: 4, 3: 8}
 
+# Trecho único de cada nível — usado para detectar no GLPI se o nível
+# já foi postado mesmo quando o cache do GitHub Actions se perde.
+FRASES_NIVEL = {
+    1: "chamado continua em análise pela nossa equipe técnica",
+    2: "Seu chamado segue em análise pela equipe responsável",
+    3: "Pedimos desculpas pela demora no retorno",
+}
+
 MENSAGENS = {
     1: """Olá,
 
@@ -187,6 +195,27 @@ def horas_desde_brt(dt):
         return None
     return (datetime.now(BRASILIA).replace(tzinfo=None) - dt).total_seconds() / 3600
 
+def em_horario_comercial(agora_brt: datetime) -> bool:
+    """Retorna True somente entre 08h–18h BRT de segunda a sexta."""
+    if agora_brt.weekday() >= 5:   # sábado=5, domingo=6
+        return False
+    return 8 <= agora_brt.hour < 18
+
+def niveis_ja_enviados_glpi(tok, tid) -> set:
+    """Detecta quais níveis de follow-up já foram postados no chamado,
+    lendo o conteúdo dos followups do GLPI — fonte da verdade quando o
+    cache do GitHub Actions se perde entre execuções."""
+    followups = _fetch_followups(tok, tid)
+    if not followups:
+        return set()
+    encontrados = set()
+    for f in followups:
+        conteudo = f.get("content", "") or ""
+        for nivel, frase in FRASES_NIVEL.items():
+            if frase in conteudo:
+                encontrados.add(nivel)
+    return encontrados
+
 def nivel_escalada(horas):
     if horas >= NIVEL_HORAS[3]: return 3
     if horas >= NIVEL_HORAS[2]: return 2
@@ -224,6 +253,10 @@ def main():
     agora_brt = datetime.now(BRASILIA).replace(tzinfo=None)
     print(f"[{agora_brt.strftime('%H:%M')} BRT] Agente Follow-up Cliente iniciado")
 
+    if not em_horario_comercial(agora_brt):
+        print("  Fora do horário comercial (08h–18h seg–sex) — nenhum follow-up enviado.")
+        return
+
     cache = carregar_cache()
     tok = get_session()
     try:
@@ -256,14 +289,20 @@ def main():
             nivel_atual = nivel_escalada(horas_ref)
             nivel_cache = cache.get(tid, {}).get("nivel", 0)
 
-            if nivel_atual == 0 or nivel_atual <= nivel_cache:
+            # Detecta do próprio GLPI quais níveis já foram enviados —
+            # evita re-postagem quando o cache do GitHub Actions se perde.
+            ja_glpi = niveis_ja_enviados_glpi(tok, t["id"])
+            nivel_max_glpi = max(ja_glpi) if ja_glpi else 0
+            nivel_referencia = max(nivel_cache, nivel_max_glpi)
+
+            if nivel_atual == 0 or nivel_atual <= nivel_referencia:
                 continue
 
             # Só grava no cache e reporta se o GLPI confirmar a postagem.
             # Salva o cache logo após postar (incremental) para não repostar
             # o mesmo nível caso o processo caia antes do salvamento final.
             if postar_followup(tok, t["id"], MENSAGENS[nivel_atual]):
-                cache[tid] = {"nivel": nivel_atual, "ts": agora_brt.isoformat()}
+                cache[tid] = {"nivel": max(nivel_atual, nivel_max_glpi), "ts": agora_brt.isoformat()}
                 salvar_cache(cache)
                 postados.append({
                     "id": t["id"], "nivel": nivel_atual,
