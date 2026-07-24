@@ -1148,7 +1148,7 @@ async function abrirModalSemana(item) {
   overlay.classList.add("open");
   document.body.style.overflow = "hidden";
   try {
-    const r = await fetch(`/api/semana?inicio=${range.inicio}&fim=${range.fim}`);
+    const r = await api(`/api/semana?inicio=${range.inicio}&fim=${range.fim}`);
     const json = await r.json();
     _semanaData = { abertos: json.abertos || [], resolvidos: json.resolvidos || [] };
     document.getElementById("semana-badge-abertos").textContent    = _semanaData.abertos.length;
