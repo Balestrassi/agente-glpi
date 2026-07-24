@@ -384,6 +384,75 @@ def periodo_customizado():
         close_session(tok)
 
 
+@app.route("/api/semana")
+def semana_detalhe():
+    """Retorna lista completa de chamados Recebe Mais abertos em uma semana,
+    separando os que ainda estão abertos dos resolvidos/fechados."""
+    inicio = request.args.get("inicio", "")
+    fim    = request.args.get("fim", "")
+    try:
+        datetime.strptime(inicio, "%Y-%m-%d")
+        datetime.strptime(fim,    "%Y-%m-%d")
+    except Exception:
+        return jsonify({"error": "Datas inválidas. Use YYYY-MM-DD"}), 400
+
+    data_ini   = f"{inicio} 00:00:00"
+    data_fim   = f"{fim} 23:59:59"
+    status_map = {1: "Novo", 2: "Em andamento", 4: "Pendente", 5: "Resolvido", 6: "Fechado"}
+
+    tok = get_session()
+    try:
+        abertos, resolvidos = [], []
+        offset = 0
+        while True:
+            lote = api_get("Ticket", tok, {
+                "expand_dropdowns": True,
+                "range": f"{offset}-{offset+99}",
+                "sort": "date_creation", "order": "DESC",
+            })
+            if not lote:
+                break
+            parou = False
+            for t in lote:
+                dc = t.get("date_creation") or ""
+                if dc > data_fim:
+                    continue
+                if dc < data_ini:
+                    parou = True
+                    break
+                if not eh_recebemai(t):
+                    continue
+                nome   = html.unescape(t.get("name", "") or "")
+                status = t.get("status")
+                item   = {
+                    "id":          t["id"],
+                    "titulo":      (nome[:65] + "…") if len(nome) > 65 else nome,
+                    "cliente":     produto(t),
+                    "status":      status,
+                    "status_nome": status_map.get(status, "?"),
+                    "dias":        dias_aberto(dc),
+                    "criacao":     dc[:10],
+                    "url":         _link(t["id"]),
+                }
+                if status in (5, 6):
+                    resolvidos.append(item)
+                else:
+                    abertos.append(item)
+            if parou or len(lote) < 100:
+                break
+            offset += 100
+
+        abertos.sort(key=lambda x: x["dias"], reverse=True)
+        return jsonify({
+            "inicio":     inicio,
+            "fim":        fim,
+            "abertos":    abertos,
+            "resolvidos": resolvidos,
+        })
+    finally:
+        close_session(tok)
+
+
 def _nome_usuario(tok, uid):
     if uid in _nomes_cache:
         return _nomes_cache[uid]

@@ -483,6 +483,23 @@
 
   .empty { font-size: 12.5px; color: var(--muted2); text-align: center; padding: 1.5rem 1rem; }
 
+  /* ── Modal semana ──────────────────────────────────── */
+  .semana-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .semana-tab {
+    padding: 7px 16px; border-radius: 9px; border: 1px solid var(--card-brd);
+    background: transparent; color: var(--muted); cursor: pointer;
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px; transition: all .15s;
+  }
+  .semana-tab.active { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+  .semana-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: 999px; font-size: 11px; font-weight: 700;
+    background: rgba(239,68,68,.12); color: #EF4444;
+  }
+  .semana-badge.verde { background: rgba(16,185,129,.12); color: #10B981; }
+
   /* Compatibilidade: track-fix não usado mais, mas não quebra nada */
   [data-theme="dark"] .track-fix { background: #334155; }
 
@@ -512,6 +529,37 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Modal detalhe de semana -->
+<div class="modal-overlay" id="semana-overlay" onclick="fecharModalSemana(event)">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-id" id="semana-periodo"></div>
+        <div class="modal-titulo" id="semana-titulo">Chamados da semana</div>
+      </div>
+      <button class="modal-close" onclick="fecharModalSemana(null, true)">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-loading" id="semana-loading">Carregando chamados...</div>
+      <div id="semana-conteudo" style="display:none">
+        <div class="semana-tabs">
+          <button class="semana-tab active" id="tab-abertos"    onclick="mudarTabSemana('abertos')">
+            Em aberto <span class="semana-badge"       id="semana-badge-abertos">0</span>
+          </button>
+          <button class="semana-tab"         id="tab-resolvidos" onclick="mudarTabSemana('resolvidos')">
+            Resolvidos <span class="semana-badge verde" id="semana-badge-resolvidos">0</span>
+          </button>
+        </div>
+        <div class="ticket-list" id="semana-lista-abertos"    style="max-height:360px;"></div>
+        <div class="ticket-list" id="semana-lista-resolvidos" style="max-height:360px;display:none;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="fecharModalSemana(null, true)">Fechar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Modal de detalhes -->
 <div class="modal-overlay" id="modal-overlay" onclick="fecharModal(event)">
@@ -701,7 +749,7 @@
     </div>
 
     <div class="section-grid">
-      <div class="trend-card card"><div class="card-title">Volume de chamados por semana</div><canvas id="chart-volume" height="160"></canvas></div>
+      <div class="trend-card card"><div class="card-title">Volume de chamados por semana <span class="card-title-hint">clique em uma barra para ver os chamados</span></div><canvas id="chart-volume" height="160" style="cursor:default;"></canvas></div>
       <div class="trend-card card"><div class="card-title">Taxa de resolução % por semana</div><canvas id="chart-taxa" height="160"></canvas></div>
     </div>
 
@@ -1057,7 +1105,96 @@ function fecharModal(evt, forcar) {
     document.body.style.overflow = "";
   }
 }
-document.addEventListener("keydown", e => { if (e.key === "Escape") fecharModal(null, true); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    fecharModal(null, true);
+    fecharModalSemana(null, true);
+  }
+});
+
+// ── Modal de semana ──────────────────────────────────────────────────
+let _semanaData = { abertos: [], resolvidos: [] };
+let _semanaTabAtiva = "abertos";
+
+function weekRange(item) {
+  // item.data pode ser "dd/mm/yyyy" ou "yyyy-mm-dd"
+  let raw = (item.data || "").trim();
+  let dt;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    dt = new Date(raw + "T00:00:00");
+  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [d, m, y] = raw.split("/");
+    dt = new Date(`${y}-${m}-${d}T00:00:00`);
+  } else {
+    return null;
+  }
+  const inicio = new Date(dt);
+  const fim    = new Date(dt);
+  fim.setDate(fim.getDate() + 6);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { inicio: fmt(inicio), fim: fmt(fim) };
+}
+
+async function abrirModalSemana(item) {
+  const range = weekRange(item);
+  if (!range) return;
+  const overlay  = document.getElementById("semana-overlay");
+  const loading  = document.getElementById("semana-loading");
+  const conteudo = document.getElementById("semana-conteudo");
+  document.getElementById("semana-periodo").textContent = `${range.inicio} → ${range.fim}`;
+  document.getElementById("semana-titulo").textContent  = "Chamados da semana";
+  loading.style.display  = "block";
+  conteudo.style.display = "none";
+  overlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+  try {
+    const r = await fetch(`/api/semana?inicio=${range.inicio}&fim=${range.fim}`);
+    const json = await r.json();
+    _semanaData = { abertos: json.abertos || [], resolvidos: json.resolvidos || [] };
+    document.getElementById("semana-badge-abertos").textContent    = _semanaData.abertos.length;
+    document.getElementById("semana-badge-resolvidos").textContent = _semanaData.resolvidos.length;
+    loading.style.display  = "none";
+    conteudo.style.display = "block";
+    mudarTabSemana("abertos");
+  } catch(err) {
+    loading.textContent = "Erro ao carregar chamados.";
+  }
+}
+
+function renderListaSemana(tipo) {
+  const items = _semanaData[tipo] || [];
+  const cont = document.getElementById(`semana-lista-${tipo}`);
+  if (!items.length) {
+    cont.innerHTML = `<div style="color:var(--muted);padding:12px 0;font-size:13px">Nenhum chamado ${tipo === "abertos" ? "em aberto" : "resolvido"} nesta semana.</div>`;
+    return;
+  }
+  cont.innerHTML = items.map(t => `
+    <div class="ticket-row">
+      <span class="ticket-id">#${t.id}</span>
+      <span class="ticket-title" style="flex:1"><a href="${t.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${t.titulo}</a></span>
+      <span style="font-size:11px;color:var(--muted);min-width:90px">${t.cliente || "—"}</span>
+      <span style="font-size:11px;color:var(--muted);min-width:40px;text-align:right">${t.dias}d</span>
+    </div>`).join("");
+}
+
+function mudarTabSemana(tipo) {
+  _semanaTabAtiva = tipo;
+  document.querySelectorAll(".semana-tab").forEach(el => {
+    el.classList.toggle("active", el.id === `tab-${tipo}`);
+  });
+  ["abertos", "resolvidos"].forEach(k => {
+    document.getElementById(`semana-lista-${k}`).style.display = k === tipo ? "block" : "none";
+  });
+  renderListaSemana(tipo);
+}
+
+function fecharModalSemana(evt, forcar) {
+  const overlay = document.getElementById("semana-overlay");
+  if (forcar || (evt && evt.target === overlay)) {
+    overlay.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+}
 
 // ── Busca por ID ────────────────────────────────────────────────────
 document.getElementById("search-input").addEventListener("keydown", function(e) {
@@ -1224,7 +1361,16 @@ async function carregarHistorico() {
         { label: "Total",      data: totais,     backgroundColor: "rgba(91,108,240,0.15)", borderColor: "#5B6CF0", borderWidth: 2, borderRadius: 6 },
         { label: "Resolvidos", data: resolvidos, backgroundColor: "rgba(16,185,129,0.15)", borderColor: "#10B981", borderWidth: 2, borderRadius: 6 },
       ]},
-      options: baseOpts
+      options: {
+        ...baseOpts,
+        onHover: (evt, elements) => {
+          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
+        },
+        onClick: (evt, elements) => {
+          if (!elements.length) return;
+          abrirModalSemana(dados[elements[0].index]);
+        },
+      }
     });
     if (chartTaxa) chartTaxa.destroy();
     chartTaxa = new Chart(document.getElementById("chart-taxa"), {
