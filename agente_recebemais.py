@@ -148,19 +148,6 @@ def enviar_telegram(mensagem):
         return False
 
 
-def followup_eh_recente(followup, minutos=10):
-    """Retorna True se o followup foi criado nos últimos N minutos (BRT)."""
-    data_str = followup.get("date_creation") or followup.get("date", "")
-    if not data_str:
-        return True
-    try:
-        data = datetime.strptime(data_str[:19], "%Y-%m-%d %H:%M:%S")
-        agora_brt = datetime.now(BRASILIA).replace(tzinfo=None)
-        return (agora_brt - data).total_seconds() < minutos * 60
-    except Exception:
-        return True
-
-
 def ja_tem_primeiro_atendimento(session_token, chamado_id):
     """Checa nos followups do GLPI se a mensagem já foi enviada — evita duplicatas mesmo com falha de cache."""
     followups = buscar_followups(session_token, chamado_id)
@@ -244,9 +231,11 @@ def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
 
         autor_id = followup.get("users_id", 0)
         if autor_id not in EQUIPE_IDS and autor_id != 0:
-            if not followup_eh_recente(followup, minutos=10):
-                print(f"  Followup #{followup['id']} ignorado — criado há mais de 10 min (anti-duplicata)")
-                continue
+            # Deduplicação é feita pelo cache (ultimo_followup_id): o loop
+            # acima já ignora followups com id <= ultimo visto. Não usamos
+            # mais janela de tempo — ela descartava respostas legítimas que
+            # chegavam fora do horário comercial (só notificadas às 8h do
+            # dia útil seguinte, já com mais de 10 min).
             conteudo_html = html.unescape(followup.get("content", "") or "")
             conteudo = re.sub(r"<[^>]+>", " ", conteudo_html)
             conteudo = re.sub(r"\s+", " ", conteudo).strip()
