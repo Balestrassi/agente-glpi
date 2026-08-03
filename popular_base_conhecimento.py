@@ -93,9 +93,12 @@ def salvar_processados(ids: set):
 
 # ── Filtro Recebe Mais ────────────────────────────────────────────────
 SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+TICKETS_EXCLUIDOS = {14975}  # chamados abertos por engano para outro time
 
 
 def eh_recebemai(ticket):
+    if ticket.get("id") in TICKETS_EXCLUIDOS:
+        return False
     sol = (ticket.get("users_id_recipient") or "").lower()
     if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
         return False

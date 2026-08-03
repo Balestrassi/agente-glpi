@@ -31,6 +31,7 @@ JANELA_MINUTOS     = 60   # janela de detecção da rajada
 LIMIAR_CHAMADOS    = 5    # >= N chamados do mesmo cliente na janela = anomalia
 SUPRESSAO_HORAS    = 3    # não re-alertar o mesmo cliente por N horas
 SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+TICKETS_EXCLUIDOS = {14975}  # chamados abertos por engano para outro time
 
 ALERTADOS_FILE = Path("anomalias_alertadas.json")
 
@@ -142,6 +143,7 @@ def main():
     recentes = [
         t for t in tickets
         if (t.get("date_creation") or "") >= limite
+        and t.get("id") not in TICKETS_EXCLUIDOS
         and not any(s in (t.get("users_id_recipient") or "").lower() for s in SOLICITANTES_EXCLUIDOS)
     ]
     print(f"  Chamados na janela: {len(recentes)}")

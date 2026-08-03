@@ -117,9 +117,12 @@ def api_get(path, tok, params=None):
 # Solicitantes de outro setor cujos chamados não devem entrar no radar do RM.
 # Comparação em minúsculas contra users_id_recipient (retorna nome com expand_dropdowns).
 SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+TICKETS_EXCLUIDOS = {14975}  # chamados abertos por engano para outro time
 
 
 def eh_recebemai(ticket):
+    if ticket.get("id") in TICKETS_EXCLUIDOS:
+        return False
     sol = (ticket.get("users_id_recipient") or "").lower()
     if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
         return False

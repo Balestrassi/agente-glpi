@@ -76,6 +76,7 @@ def close_session(session_token):
 
 
 SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+TICKETS_EXCLUIDOS = {14975}  # chamados abertos por engano para outro time
 
 
 def eh_recebemai(ticket):
