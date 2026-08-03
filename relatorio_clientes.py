@@ -112,7 +112,13 @@ def api_get(path, tok, params=None):
                      headers=_headers(tok), params=params, timeout=30)
     return r.json() if r.status_code in (200, 206) else []
 
+SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+
+
 def eh_recebemai(ticket):
+    sol = (ticket.get("users_id_recipient") or "").lower()
+    if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
+        return False
     ent = (ticket.get("entities_id")       or "").lower()
     cat = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in ent or "recebemai" in cat or "recebe mais" in cat

@@ -27,9 +27,10 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 
 BRASILIA = timezone(timedelta(hours=-3))
 
-JANELA_MINUTOS   = 60   # janela de detecção da rajada
-LIMIAR_CHAMADOS  = 5    # >= N chamados do mesmo cliente na janela = anomalia
-SUPRESSAO_HORAS  = 3    # não re-alertar o mesmo cliente por N horas
+JANELA_MINUTOS     = 60   # janela de detecção da rajada
+LIMIAR_CHAMADOS    = 5    # >= N chamados do mesmo cliente na janela = anomalia
+SUPRESSAO_HORAS    = 3    # não re-alertar o mesmo cliente por N horas
+SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
 
 ALERTADOS_FILE = Path("anomalias_alertadas.json")
 
@@ -138,7 +139,11 @@ def main():
     finally:
         close_session(tok)
 
-    recentes = [t for t in tickets if (t.get("date_creation") or "") >= limite]
+    recentes = [
+        t for t in tickets
+        if (t.get("date_creation") or "") >= limite
+        and not any(s in (t.get("users_id_recipient") or "").lower() for s in SOLICITANTES_EXCLUIDOS)
+    ]
     print(f"  Chamados na janela: {len(recentes)}")
 
     por_cliente = {}

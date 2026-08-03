@@ -102,7 +102,13 @@ def api_get(path, tok, params=None):
     return []
 
 # ── Filtro e classificação Recebe Mais ────────────────────────────────
+SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+
+
 def eh_recebemai(ticket):
+    sol = (ticket.get("users_id_recipient") or "").lower()
+    if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
+        return False
     entidade  = (ticket.get("entities_id")       or "").lower()
     categoria = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria

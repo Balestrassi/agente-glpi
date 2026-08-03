@@ -75,10 +75,16 @@ def close_session(session_token):
     )
 
 
+SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
+
+
 def eh_recebemai(ticket):
     """Mesma regra usada em agente_sla.py, agente_reaberturas.py, relatorio_automatico.py
     e dashboard/app.py — mantida idêntica para que um chamado seja tratado de forma
     consistente por todos os agentes (evita chamados aparecerem em uns e não em outros)."""
+    sol = (ticket.get("users_id_recipient") or "").lower()
+    if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
+        return False
     entidade  = (ticket.get("entities_id")       or "").lower()
     categoria = (ticket.get("itilcategories_id") or "").lower()
     return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
