@@ -173,31 +173,36 @@ def _requester_id(tok, tid):
 
 def ticket_apenas_primeiro_atendimento(tok, tid, requester_id):
     """
-    True somente se o chamado tiver APENAS mensagens automáticas nossas
-    (o "primeiro atendimento" e/ou follow-ups já postados por este agente,
-    todos com a assinatura padrão) — ou seja, ninguém, nem o cliente nem
-    um técnico, adicionou qualquer outro followup.
+    Retorna (elegivel, dt_primeiro_atendimento):
+    - elegivel: True somente se o chamado tiver APENAS mensagens automáticas nossas
+      (o "primeiro atendimento" e/ou follow-ups já postados por este agente).
+    - dt_primeiro_atendimento: datetime do 1º followup automático, ou None.
 
-    Fail-safe: se a busca dos followups falhar (None), retorna False — na
-    dúvida, NÃO posta. Também retorna False se não houver nenhum followup
-    (nem o primeiro atendimento ainda postado).
+    Retornamos a data do 1º followup para que o escalonamento seja medido a
+    partir de quando o primeiro atendimento foi enviado, não de quando o chamado
+    foi aberto — evita disparar follow-ups imediatamente quando o agente_recebemais
+    envia o primeiro atendimento num chamado antigo.
 
-    Um followup desqualifica o chamado se:
-      - for do próprio solicitante (mesmo que cite nossa assinatura numa
-        resposta por e-mail que reproduz a mensagem anterior), ou
-      - não contiver a assinatura automática (resposta real de um técnico).
+    Fail-safe: se a busca falhar, retorna (False, None).
     """
     followups = _fetch_followups(tok, tid)
     if not followups:  # None (erro) ou lista vazia
-        return False
+        return False, None
+    dt_primeiro = None
     for f in followups:
         conteudo = f.get("content", "") or ""
         autor    = f.get("users_id")
         if requester_id is not None and autor == requester_id:
-            return False
+            return False, None
         if ASSINATURA_AUTOMATICA not in conteudo:
-            return False
-    return True
+            return False, None
+        if dt_primeiro is None:
+            date_str = f.get("date_creation") or ""
+            try:
+                dt_primeiro = datetime.strptime(date_str[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+    return True, dt_primeiro
 
 def horas_desde_brt(dt):
     if dt is None:
@@ -283,17 +288,21 @@ def main():
             # automático. Qualquer interação (do cliente ou de um técnico)
             # tira o chamado do acompanhamento.
             requester_id = _requester_id(tok, t["id"])
-            if not ticket_apenas_primeiro_atendimento(tok, t["id"], requester_id):
+            elegivel, dt_primeiro_atend = ticket_apenas_primeiro_atendimento(tok, t["id"], requester_id)
+            if not elegivel:
                 cache.pop(tid, None)
                 continue
 
-            # Escalonamento medido a partir da criação do chamado
+            # Escalonamento medido a partir do PRIMEIRO ATENDIMENTO automático,
+            # não da criação do chamado — evita disparar follow-ups imediatamente
+            # quando o agente_recebemais envia o primeiro atendimento num chamado antigo.
             criacao = t.get("date_creation") or ""
             try:
                 dt_criacao = datetime.strptime(criacao[:19], "%Y-%m-%d %H:%M:%S")
             except Exception:
                 continue
-            horas_ref = horas_desde_brt(dt_criacao)
+            dt_base   = dt_primeiro_atend or dt_criacao
+            horas_ref = horas_desde_brt(dt_base)
 
             nivel_atual = nivel_escalada(horas_ref)
             nivel_cache = cache.get(tid, {}).get("nivel", 0)
@@ -318,7 +327,7 @@ def main():
                     "titulo": html.unescape(t.get("name", "") or ""),
                     "horas": round(horas_ref, 1),
                 })
-                print(f"  Chamado #{t['id']}: follow-up nível {nivel_atual} postado ({horas_ref:.1f}h desde a abertura, só com primeiro atendimento)")
+                print(f"  Chamado #{t['id']}: follow-up nível {nivel_atual} postado ({horas_ref:.1f}h desde o 1º atendimento, só com mensagens automáticas)")
             else:
                 print(f"  Chamado #{t['id']}: FALHA ao postar follow-up nível {nivel_atual} — será tentado na próxima execução")
 
