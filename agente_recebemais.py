@@ -125,21 +125,27 @@ def buscar_followups(session_token, chamado_id):
 
 
 def postar_primeiro_atendimento(session_token, chamado_id):
-    requests.post(
-        f"{GLPI_URL}/apirest.php/ITILFollowup",
-        headers={
-            "App-Token": APP_TOKEN,
-            "Session-Token": session_token,
-            "Content-Type": "application/json",
-        },
-        json={
-            "input": {
-                "items_id": chamado_id,
-                "itemtype": "Ticket",
-                "content": PRIMEIRA_RESPOSTA,
-            }
-        },
-    )
+    """Retorna True se o GLPI confirmou a postagem (200/201), False caso contrário."""
+    try:
+        r = requests.post(
+            f"{GLPI_URL}/apirest.php/ITILFollowup",
+            headers={
+                "App-Token": APP_TOKEN,
+                "Session-Token": session_token,
+                "Content-Type": "application/json",
+            },
+            json={
+                "input": {
+                    "items_id": chamado_id,
+                    "itemtype": "Ticket",
+                    "content": PRIMEIRA_RESPOSTA,
+                }
+            },
+            timeout=15,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 
 def enviar_telegram(mensagem):
@@ -189,6 +195,10 @@ def chamado_e_recente(chamado, horas=2):
 
 
 def processar_novo_chamado(session_token, chamado):
+    """Posta o primeiro atendimento e notifica o Telegram.
+    Retorna True se o GLPI confirmou a postagem, False caso contrário.
+    Só retorna True quando o chamado está de fato registrado no GLPI — evita
+    marcar o ticket como 'visto' quando a postagem falhou silenciosamente."""
     chamado_id = chamado["id"]
     titulo = html.unescape(chamado.get("name", "Sem titulo") or "Sem titulo")
     criado_em = chamado.get("date_creation", "")
@@ -196,7 +206,10 @@ def processar_novo_chamado(session_token, chamado):
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Novo chamado: #{chamado_id} - {titulo}")
 
-    postar_primeiro_atendimento(session_token, chamado_id)
+    if not postar_primeiro_atendimento(session_token, chamado_id):
+        print(f"  -> FALHA ao postar primeiro atendimento no #{chamado_id} — será retentado no próximo run")
+        return False
+
     print(f"  -> Primeiro atendimento postado no chamado #{chamado_id}")
 
     mensagem = (
@@ -210,6 +223,7 @@ def processar_novo_chamado(session_token, chamado):
     )
     enviar_telegram(mensagem)
     print(f"  -> Notificacao Telegram enviada!")
+    return True
 
 
 def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
@@ -296,12 +310,25 @@ def main():
         cid = chamado["id"]
         status = chamado.get("status")
         if status != 1:
+            # Chamado aberto em outro status (ex: cliente respondeu e reabriu):
+            # registra sem primeiro atendimento mas marca como visto.
             print(f"  Chamado #{cid} visto pela primeira vez já em status {status} — registrado sem primeiro atendimento.")
+            chamados_vistos.add(cid)
         elif ja_tem_primeiro_atendimento(session, cid):
+            # Já tem primeiro atendimento (cache perdido mas GLPI tem o registro):
+            # evita reenvio, marca como visto.
             print(f"  Chamado #{cid} já tem primeiro atendimento — adicionando ao cache sem reenviar")
+            chamados_vistos.add(cid)
         else:
-            processar_novo_chamado(session, chamado)
-        chamados_vistos.add(cid)
+            # Chamado novo sem primeiro atendimento: só marca como visto se o
+            # POST ao GLPI for confirmado — evita sumir com o chamado em caso
+            # de falha silenciosa da API.
+            if processar_novo_chamado(session, chamado):
+                chamados_vistos.add(cid)
+            else:
+                # Falha na postagem: não adiciona ao cache para que o próximo
+                # run tente novamente.
+                continue
         followups = buscar_followups(session, cid)
         followups_vistos[str(cid)] = followups[0]["id"] if followups else 0
         # Salva a cada chamado: se uma falha de rede interromper o loop no
