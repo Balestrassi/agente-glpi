@@ -777,7 +777,7 @@
 </div>
 
 <script>
-const GLPI_BASE = "https://servicedesk.a7on.ai";
+const GLPI_BASE = {{ glpi_base | tojson }};
 
 // ── Autenticação por token ──────────────────────────────────────────
 function getDashToken() { return localStorage.getItem("dash_token") || ""; }

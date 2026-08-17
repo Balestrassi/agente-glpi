@@ -30,7 +30,7 @@ BRASILIA = timezone(timedelta(hours=-3))
 
 app = Flask(__name__)
 
-GLPI_URL         = os.environ.get("GLPI_URL",                "https://servicedesk.a7on.ai")
+GLPI_URL         = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",          "")
 USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN",         "")
 GLPI_PROFILE_ID  = os.environ.get("GLPI_PROFILE_ID",         "4")
@@ -44,6 +44,12 @@ CACHE_TTL        = 300  # 5 minutos
 # Token de acesso ao dashboard (defina DASHBOARD_TOKEN no Render).
 # Sem ele definido o dashboard fica aberto — compatibilidade retroativa.
 DASHBOARD_TOKEN  = os.environ.get("DASHBOARD_TOKEN", "")
+
+# Segredo compartilhado com o Telegram: o setWebhook registra este valor e o
+# Telegram passa a assinar cada chamada no header X-Telegram-Bot-Api-Secret-Token.
+# Sem ele definido a validacao fica inativa — compatibilidade retroativa, para
+# nao derrubar o webhook antes do /setup-webhook ser reexecutado.
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 
 # Radar SLA: chamados abertos sem movimentação há mais de X horas
 SLA_RADAR_HORAS  = 12
@@ -68,8 +74,9 @@ def _exigir_token():
         return
     if not (request.path.startswith("/api/") or request.path == "/setup-webhook"):
         return
-    enviado = (request.headers.get("X-Dashboard-Token")
-               or request.args.get("token") or "")
+    # Somente via header: token em query string vaza nos logs de acesso,
+    # no historico do navegador e no cabecalho Referer.
+    enviado = request.headers.get("X-Dashboard-Token", "")
     if enviado != DASHBOARD_TOKEN:
         return jsonify({"error": "unauthorized"}), 401
 
@@ -288,7 +295,8 @@ def calcular():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # A URL do GLPI vem da variavel de ambiente; o template so monta os links.
+    return render_template("index.html", glpi_base=GLPI_URL)
 
 
 @app.route("/api/ticket/<int:tid>")
@@ -976,6 +984,12 @@ def _processar_comando(chat_id, text):
 
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
+    # A URL deste endpoint e publica; o segredo e a unica prova de que a
+    # chamada veio mesmo do Telegram.
+    if TELEGRAM_WEBHOOK_SECRET:
+        recebido = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if recebido != TELEGRAM_WEBHOOK_SECRET:
+            return "", 403
     data    = request.get_json(silent=True) or {}
     message = data.get("message") or data.get("edited_message")
     if not message:
@@ -997,12 +1011,19 @@ def setup_webhook():
     """Acesse uma vez para registrar o webhook no Telegram."""
     if not TELEGRAM_TOKEN:
         return jsonify({"error": "TELEGRAM_TOKEN não configurado"}), 500
-    url = request.url_root.rstrip("/") + "/telegram/webhook"
-    r   = requests.post(
+    url  = request.url_root.rstrip("/") + "/telegram/webhook"
+    body = {"url": url}
+    if TELEGRAM_WEBHOOK_SECRET:
+        body["secret_token"] = TELEGRAM_WEBHOOK_SECRET
+    r = requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-        json={"url": url}, timeout=10,
+        json=body, timeout=10,
     )
-    return jsonify({"webhook_url": url, "telegram_response": r.json()})
+    return jsonify({
+        "webhook_url":      url,
+        "secret_token":     "configurado" if TELEGRAM_WEBHOOK_SECRET else "AUSENTE",
+        "telegram_response": r.json(),
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────

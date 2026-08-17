@@ -12,3 +12,4 @@ base_conhecimento_processados.json
 anomalias_alertadas.json
 reaberturas_cache.json
 sla_alertados.json
+followup_cliente_cache.json

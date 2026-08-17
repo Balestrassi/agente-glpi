@@ -38,7 +38,7 @@ def _obrigatoria(nome: str) -> str:
 
 _carregar_env()
 
-GLPI_URL   = os.environ.get("GLPI_URL", "https://servicedesk.a7on.ai")
+GLPI_URL   = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN  = _obrigatoria("GLPI_APP_TOKEN")
 USER_TOKEN = _obrigatoria("GLPI_USER_TOKEN")
 GLPI_PROFILE_ID = os.environ.get("GLPI_PROFILE_ID", "4")

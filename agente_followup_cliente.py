@@ -21,7 +21,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-GLPI_URL         = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
+GLPI_URL         = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN        = os.environ.get("GLPI_APP_TOKEN",  "")
 USER_TOKEN       = os.environ.get("GLPI_USER_TOKEN", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")

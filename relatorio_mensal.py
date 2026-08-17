@@ -40,7 +40,7 @@ from relatorio_automatico import (
 )
 
 # ── Credenciais ───────────────────────────────────────────────────────
-GLPI_URL         = os.environ.get("GLPI_URL",        "https://servicedesk.a7on.ai")
+GLPI_URL         = os.environ["GLPI_URL"].rstrip("/")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN",  "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 

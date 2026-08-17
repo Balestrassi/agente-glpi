@@ -20,7 +20,7 @@ from reportlab.platypus import (
 )
 
 # ── Credenciais (via ambiente/Secrets — nunca hardcoded) ──────────────
-GLPI_URL   = os.environ.get("GLPI_URL", "https://servicedesk.a7on.ai")
+GLPI_URL   = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN  = os.environ["GLPI_APP_TOKEN"]
 USER_TOKEN = os.environ["GLPI_USER_TOKEN"]
 GLPI_PROFILE_ID = os.environ.get("GLPI_PROFILE_ID", "4")
