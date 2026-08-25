@@ -273,6 +273,8 @@
   .st-1 { background: rgba(239,68,68,.1);   color: #DC2626; }
   .st-2 { background: rgba(91,108,240,.1);  color: #4F46E5; }
   .st-4 { background: rgba(245,158,11,.1);  color: #B45309; }
+  .st-5 { background: rgba(16,185,129,.1);  color: #059669; }
+  .st-6 { background: rgba(148,163,184,.15); color: #64748B; }
   [data-theme="dark"] .st-2 { color: #818CF8; }
   .glpi-link {
     font-size: 11px; color: var(--primary); text-decoration: none;
@@ -564,6 +566,25 @@
   </div>
 </div>
 
+<!-- Modal detalhe de celula do mapa de calor -->
+<div class="modal-overlay" id="heatmap-overlay" onclick="fecharModalHeatmap(event)">
+  <div class="modal" style="max-width:620px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-id" id="heatmap-count"></div>
+        <div class="modal-titulo" id="heatmap-titulo">Chamados</div>
+      </div>
+      <button class="modal-close" onclick="fecharModalHeatmap(null, true)">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="ticket-list" id="heatmap-lista" style="max-height:420px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="fecharModalHeatmap(null, true)">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de detalhes -->
 <div class="modal-overlay" id="modal-overlay" onclick="fecharModal(event)">
   <div class="modal" id="modal">
@@ -810,7 +831,7 @@ function escapeHtml(str) {
 
 const COR_PROD = { "Manserv":"#5B6CF0","RecebeMais":"#10B981","Messiânica":"#8B5CF6","Outros":"#94A3B8" };
 const COR_TIPO = { "Erro":"#EF4444","Solicitação":"#5B6CF0","Wildlife":"#10B981","Dúvida":"#F59E0B","Melhoria":"#8B5CF6","Outros":"#94A3B8" };
-const ST_BADGE = { "Novo":'<span class="st-badge st-1">Novo</span>', "Em andamento":'<span class="st-badge st-2">Em andamento</span>', "Pendente":'<span class="st-badge st-4">Pendente</span>' };
+const ST_BADGE = { "Novo":'<span class="st-badge st-1">Novo</span>', "Em andamento":'<span class="st-badge st-2">Em andamento</span>', "Pendente":'<span class="st-badge st-4">Pendente</span>', "Resolvido":'<span class="st-badge st-5">Resolvido</span>', "Fechado":'<span class="st-badge st-6">Fechado</span>' };
 
 let _dados = null;
 let filtroCliente = null;
@@ -1025,10 +1046,12 @@ function renderHeatmap(heatmap, dias, periodos) {
   html += '</tr></thead><tbody>';
   dias.forEach((dia, i) => {
     html += `<tr><td class="heatmap-row-label">${dia}</td>`;
-    heatmap[i].forEach(v => {
+    heatmap[i].forEach((v, j) => {
       const intensidade = v / max;
       const alpha = 0.1 + intensidade * 0.82;
-      html += `<td><div class="heatmap-cell" style="background:rgba(91,108,240,${alpha})" title="${dia} · ${v} chamado(s)">${v > 0 ? v : ''}</div></td>`;
+      const acao  = v > 0 ? ` onclick="abrirModalHeatmap(${i},${j})" style="background:rgba(91,108,240,${alpha});cursor:pointer"` : ` style="background:rgba(91,108,240,${alpha})"`;
+      const dica  = `${dia} · ${periodos[j]} · ${v} chamado(s)${v > 0 ? ' — clique para ver' : ''}`;
+      html += `<td><div class="heatmap-cell"${acao} title="${dica}">${v > 0 ? v : ''}</div></td>`;
     });
     html += '</tr>';
   });
@@ -1193,6 +1216,37 @@ function mudarTabSemana(tipo) {
 
 function fecharModalSemana(evt, forcar) {
   const overlay = document.getElementById("semana-overlay");
+  if (forcar || (evt && evt.target === overlay)) {
+    overlay.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+}
+
+// ── Detalhe de celula do mapa de calor ─────────────────────────────
+function abrirModalHeatmap(diaIdx, periodoIdx) {
+  if (!_dados || !_dados.heatmap_tickets) return;
+  const tickets = _dados.heatmap_tickets[diaIdx][periodoIdx] || [];
+  if (!tickets.length) return;
+
+  document.getElementById("heatmap-titulo").textContent = `${_dados.heatmap_dias[diaIdx]} · ${_dados.heatmap_periodos[periodoIdx]}`;
+  document.getElementById("heatmap-count").textContent  = `${tickets.length} chamado(s)`;
+  document.getElementById("heatmap-lista").innerHTML = tickets.map(t => {
+    const badge = ST_BADGE[t.status_nome] || "";
+    return `<div class="ticket-row" onclick="abrirModal(${t.id})">
+      <span class="ticket-id">#${t.id}</span>
+      <span class="ticket-title" style="flex:1">${escapeHtml(t.titulo)}</span>
+      <span style="font-size:11px;color:var(--muted);min-width:90px">${escapeHtml(t.cliente || "—")}</span>
+      <span style="font-size:11px;color:var(--muted);min-width:110px;text-align:right">${t.data}</span>
+      ${badge}
+      <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
+    </div>`;
+  }).join("");
+
+  document.getElementById("heatmap-overlay").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+function fecharModalHeatmap(evt, forcar) {
+  const overlay = document.getElementById("heatmap-overlay");
   if (forcar || (evt && evt.target === overlay)) {
     overlay.classList.remove("open");
     document.body.style.overflow = "";

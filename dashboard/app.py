@@ -206,6 +206,8 @@ def calcular():
         sem_total       = 0
         sem_resol       = 0
         heatmap         = [[0] * 4 for _ in range(7)]  # [dia_semana][periodo]
+        heatmap_tickets = [[[] for _ in range(4)] for _ in range(7)]  # mesmos indices, com os chamados
+        status_map      = {1: "Novo", 2: "Em andamento", 4: "Pendente", 5: "Resolvido", 6: "Fechado"}
         agora_naive     = agora.replace(tzinfo=None)
 
         for t in tickets:
@@ -229,7 +231,15 @@ def calcular():
 
             try:
                 dt_criacao = datetime.strptime(criacao[:19], "%Y-%m-%d %H:%M:%S")
-                heatmap[dt_criacao.weekday()][periodo_do_dia(dt_criacao.hour)] += 1
+                dia, per   = dt_criacao.weekday(), periodo_do_dia(dt_criacao.hour)
+                heatmap[dia][per] += 1
+                heatmap_tickets[dia][per].append({
+                    "id":          tid,
+                    "titulo":      (nome[:50] + "…") if len(nome) > 50 else nome,
+                    "cliente":     cli,
+                    "status_nome": status_map.get(status, "?"),
+                    "data":        dt_criacao.strftime("%d/%m/%Y %H:%M"),
+                })
             except Exception:
                 pass
 
@@ -286,6 +296,7 @@ def calcular():
             "taxa_semana":      round(sem_resol / sem_total * 100) if sem_total else 0,
             "atualizado":       agora.strftime("%d/%m/%Y %H:%M") + " BRT",
             "heatmap":          heatmap,
+            "heatmap_tickets":  heatmap_tickets,
             "heatmap_dias":     DIAS_SEMANA,
             "heatmap_periodos": PERIODOS_DIA,
         }
