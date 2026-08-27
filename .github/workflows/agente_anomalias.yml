@@ -1,8 +1,9 @@
 name: Agente Detector de Anomalias
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'
+  # Disparo via cron-job.org (workflow_dispatch) a cada 15 min. O 'schedule:'
+  # nativo foi removido em 27/08/2026 — mesma razao do agente.yml: em repos
+  # com pouca atividade ele atrasa horas em vez de minutos.
   workflow_dispatch:
 
 jobs:

@@ -1,8 +1,9 @@
 name: Agente Reaberturas GLPI
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # a cada 30 minutos
+  # Disparo via cron-job.org (workflow_dispatch) a cada 30 min. O 'schedule:'
+  # nativo foi removido em 27/08/2026 — mesma razao do agente.yml: em repos
+  # com pouca atividade ele atrasa horas em vez de minutos.
   workflow_dispatch:
 
 jobs:
