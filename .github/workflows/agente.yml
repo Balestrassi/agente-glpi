@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests
+        run: pip install requests holidays
 
       - name: Restaurar ids_vistos
         uses: actions/cache@v4

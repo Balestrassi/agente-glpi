@@ -18,6 +18,7 @@ import os
 import json
 import html
 import requests
+import holidays
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,11 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 
 BRASILIA    = timezone(timedelta(hours=-3))
 CACHE_FILE  = Path(__file__).parent / "followup_cliente_cache.json"
+
+# Feriados nacionais (fixos e móveis) — calculados sob demanda pela lib,
+# sem lista para manter atualizada ano a ano. Carnaval NÃO entra aqui:
+# não é feriado nacional por lei e a equipe trabalha normalmente nesses dias.
+FERIADOS_BR = holidays.Brazil()
 
 # Trecho usado para identificar (e excluir) qualquer mensagem automática
 # já postada por nós — inclusive o "primeiro atendimento" e os próprios
@@ -210,8 +216,10 @@ def horas_desde_brt(dt):
     return (datetime.now(BRASILIA).replace(tzinfo=None) - dt).total_seconds() / 3600
 
 def em_horario_comercial(agora_brt: datetime) -> bool:
-    """Retorna True somente entre 08h–18h BRT de segunda a sexta."""
+    """Retorna True somente entre 08h–18h BRT de segunda a sexta, exceto feriados nacionais."""
     if agora_brt.weekday() >= 5:   # sábado=5, domingo=6
+        return False
+    if agora_brt.date() in FERIADOS_BR:
         return False
     return 8 <= agora_brt.hour < 18
 

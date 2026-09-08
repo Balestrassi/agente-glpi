@@ -3,9 +3,15 @@ import json
 import re
 import requests
 import html
+import holidays
 from datetime import datetime, timedelta, timezone
 
 BRASILIA = timezone(timedelta(hours=-3))
+
+# Feriados nacionais (fixos e móveis) — calculados sob demanda pela lib,
+# sem lista para manter atualizada ano a ano. Carnaval NÃO entra aqui:
+# não é feriado nacional por lei e a equipe trabalha normalmente nesses dias.
+FERIADOS_BR = holidays.Brazil()
 
 GLPI_URL = os.environ["GLPI_URL"].rstrip("/")
 APP_TOKEN = os.environ["GLPI_APP_TOKEN"]
@@ -173,8 +179,12 @@ def ja_tem_primeiro_atendimento(session_token, chamado_id):
 
 def dentro_horario_comercial():
     agora = datetime.now(BRASILIA)
-    # Segunda=0 ... Sexta=4; 8h <= hora < 18h
-    return agora.weekday() < 5 and 8 <= agora.hour < 18
+    # Segunda=0 ... Sexta=4; 8h <= hora < 18h; exclui feriados nacionais
+    return (
+        agora.weekday() < 5
+        and 8 <= agora.hour < 18
+        and agora.date() not in FERIADOS_BR
+    )
 
 
 def chamado_e_recente(chamado, horas=2):
