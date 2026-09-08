@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests
+        run: pip install requests holidays
 
       - name: Restaurar alertados
         uses: actions/cache@v4

@@ -11,6 +11,7 @@ import os
 import json
 import html
 import requests
+import holidays
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,6 +24,11 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID","")
 
 BRASILIA       = timezone(timedelta(hours=-3))
 ALERTADOS_FILE = Path("sla_alertados.json")
+
+# Feriados nacionais (fixos e móveis) — calculados sob demanda pela lib,
+# sem lista para manter atualizada ano a ano. Carnaval NÃO entra aqui:
+# não é feriado nacional por lei e a equipe trabalha normalmente nesses dias.
+FERIADOS_BR = holidays.Brazil()
 
 NIVEL_HORAS  = {1: 24, 2: 48, 3: 72}
 STATUS_NOME  = {1: "Novo", 2: "Em andamento", 4: "Pendente"}
@@ -153,6 +159,14 @@ def horas_desde_brt(dt_str):
     except Exception:
         return 0
 
+def em_horario_comercial(agora_brt: datetime) -> bool:
+    """Retorna True somente entre 08h–18h BRT de segunda a sexta, exceto feriados nacionais."""
+    if agora_brt.weekday() >= 5:   # sábado=5, domingo=6
+        return False
+    if agora_brt.date() in FERIADOS_BR:
+        return False
+    return 8 <= agora_brt.hour < 18
+
 def nivel_escalada(horas):
     if horas >= NIVEL_HORAS[3]: return 3
     if horas >= NIVEL_HORAS[2]: return 2
@@ -229,6 +243,10 @@ def main():
     agora_brt = datetime.now(BRASILIA).replace(tzinfo=None)
     agora_utc = datetime.utcnow()
     print(f"[{agora_brt.strftime('%H:%M')} BRT] Agente SLA iniciado")
+
+    if not em_horario_comercial(agora_brt):
+        print("  Fora do horário comercial (08h–18h seg–sex, exceto feriados) — nenhum alerta verificado.")
+        return
 
     alertados = carregar_alertados()
 
