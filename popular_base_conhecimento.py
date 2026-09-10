@@ -103,8 +103,17 @@ def eh_recebemai(ticket):
     if any(s in sol for s in SOLICITANTES_EXCLUIDOS):
         return False
     entidade  = (ticket.get("entities_id")       or "").lower()
+    if "recebe mais" in entidade or "recebemai" in entidade:
+        return True
+    # Fora das entidades "Recebe Mais > ...": so conta se categoria E titulo
+    # confirmarem Recebe Mais — evita pegar chamado de outro time cuja
+    # categoria foi preenchida errada (ex: #15550, chamado de BI/Oracle Cloud
+    # com categoria "TI > RecebeMais" aplicada por engano).
     categoria = (ticket.get("itilcategories_id") or "").lower()
-    return "recebe mais" in entidade or "recebemai" in categoria or "recebe mais" in categoria
+    titulo    = (ticket.get("name")              or "").lower()
+    cat_rm = "recebemai" in categoria or "recebe mais" in categoria
+    tit_rm = "recebemai" in titulo    or "recebe mais" in titulo
+    return cat_rm and tit_rm
 
 # ── Texto limpo ───────────────────────────────────────────────────────
 def limpar_html(texto: str) -> str:
