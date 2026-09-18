@@ -334,7 +334,11 @@
   .heatmap-table { width: 100%; border-collapse: collapse; font-size: 11px; }
   .heatmap-table th { font-weight: 600; color: var(--muted); padding: 4px 6px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
   .heatmap-table td { text-align: center; padding: 3px; }
-  .heatmap-cell { width: 100%; aspect-ratio: 1.4; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; cursor: default; transition: transform .15s; }
+  /* No tema claro a celula de contagem baixa fica lilas quase branco, e o
+     numero em branco desaparecia (1.1:1). Texto escuro cobre toda a faixa
+     de intensidade. No tema escuro o fundo ja e escuro, entao o branco fica. */
+  .heatmap-cell { width: 100%; aspect-ratio: 1.4; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #312E81; cursor: default; transition: transform .15s; }
+  [data-theme="dark"] .heatmap-cell { color: #fff; }
   .heatmap-cell:hover { transform: scale(1.1); }
   .heatmap-row-label { text-align: right; padding-right: 10px !important; font-size: 11px; color: var(--muted); white-space: nowrap; font-weight: 500; }
 
@@ -1135,6 +1139,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     fecharModal(null, true);
     fecharModalSemana(null, true);
+    fecharModalHeatmap(null, true);   // faltava: Esc nao fechava o mapa de calor
   }
 });
 
