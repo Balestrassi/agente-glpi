@@ -817,12 +817,24 @@ function pedirToken(msg) {
     loading.innerHTML = '<div style="font-size:14px;">🔒 Acesso restrito — recarregue a página para informar o token.</div>';
   }
 }
+// Depois de um 401 nao adianta insistir: cada nova tentativa reabriria o
+// prompt de token, o que e pior do que a falha original.
+let _semAutorizacao = false;
+function _erroAutorizacao() {
+  const e = new Error("unauthorized");
+  e.naoAutorizado = true;   // deixa o catch separar isso de falha de rede
+  return e;
+}
 async function api(url) {
+  if (_semAutorizacao) throw _erroAutorizacao();
   const r = await fetch(url, { headers: { "X-Dashboard-Token": getDashToken() } });
   if (r.status === 401) {
     localStorage.removeItem("dash_token");
-    pedirToken("🔒 Token ausente ou inválido.\nInforme o token de acesso:");
-    throw new Error("unauthorized");
+    if (!_semAutorizacao) {
+      _semAutorizacao = true;
+      pedirToken("🔒 Token ausente ou inválido.\nInforme o token de acesso:");
+    }
+    throw _erroAutorizacao();
   }
   return r;
 }
@@ -1075,6 +1087,10 @@ async function carregar(manual) {
     document.getElementById("loading").style.display = "none";
   } catch (e) {
     console.error("Erro ao carregar stats:", e);
+    // Sem autorizacao a tela ja mostra o aviso de token, escrito pelo
+    // pedirToken(). Sobrescrever aqui trocava a causa real por "erro ao
+    // conectar" e ainda reagendava o retry, reabrindo o prompt a cada 30s.
+    if (e && e.naoAutorizado) return;
     const loading = document.getElementById("loading");
     if (loading.style.display !== "none") {
       loading.innerHTML = `<div style="color:#F59E0B;font-size:13px;">Erro ao conectar. Tentando em 30s...</div>`;
