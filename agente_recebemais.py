@@ -21,7 +21,7 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 # IDs da equipe interna (respostas desses usuarios nao disparam notificacao)
-EQUIPE_IDS = {431, 179, 449}  # victor.balestrassi, felipe.aggio, nas.pontes(jhonatan)
+EQUIPE_IDS = {431, 179, 449, 511, 508}  # victor.balestrassi, felipe.aggio, nas.pontes(jhonatan), sidnei.junior, emanuel.hashimoto
 
 IDS_VISTOS_FILE = "ids_vistos.json"
 
