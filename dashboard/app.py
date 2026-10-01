@@ -126,6 +126,12 @@ def api_get(path, tok, params=None):
 SOLICITANTES_EXCLUIDOS = frozenset({"marlon.james", "vinicius.ariston", "marlon james", "vinicius ariston", "vinícius ariston"})
 TICKETS_EXCLUIDOS = {14975}  # chamados abertos por engano para outro time
 
+# Técnicos de outro time que, quando atribuídos, não devem aparecer no
+# dashboard mesmo que o chamado seja de uma entidade "Recebe Mais > ...".
+# 236 = Marlon James. Só é viável checar isso em lotes pequenos (chamados
+# abertos) — ver ids_tecnico_excluido().
+TECNICOS_EXCLUIDOS_IDS = {236}
+
 
 def eh_recebemai(ticket):
     if ticket.get("id") in TICKETS_EXCLUIDOS:
@@ -190,6 +196,28 @@ def periodo_do_dia(hora):
     return 3                 # Noite
 
 
+def ids_tecnico_excluido(tickets):
+    """Retorna o conjunto de IDs de 'tickets' cujo técnico atribuído está em
+    TECNICOS_EXCLUIDOS_IDS. Usa sessões paralelas (mesmo padrão de
+    buscar_ranking_tecnicos) — só é chamada sobre lotes pequenos (chamados
+    abertos), nunca sobre o histórico completo, que inviabilizaria o custo."""
+    if not tickets or not TECNICOS_EXCLUIDOS_IDS:
+        return set()
+    n_workers = min(6, len(tickets)) or 1
+    sessoes = [get_session() for _ in range(n_workers)]
+    try:
+        def checar(idx_t):
+            idx, t = idx_t
+            uid = _tecnico_do_ticket(sessoes[idx % n_workers], t["id"])
+            return t["id"] if uid in TECNICOS_EXCLUIDOS_IDS else None
+        with ThreadPoolExecutor(max_workers=n_workers) as ex:
+            resultados = list(ex.map(checar, enumerate(tickets)))
+    finally:
+        for s in sessoes:
+            close_session(s)
+    return {rid for rid in resultados if rid is not None}
+
+
 def calcular():
     tok = get_session()
     try:
@@ -219,6 +247,12 @@ def calcular():
         status_map      = {1: "Novo", 2: "Em andamento", 4: "Pendente", 5: "Resolvido", 6: "Fechado"}
         agora_naive     = agora.replace(tzinfo=None)
 
+        # Chamados de técnico excluído (ex: Marlon James) não contam em
+        # abertos/críticos/radar SLA. Só vale a pena checar o lote aberto —
+        # ver o comentário em ids_tecnico_excluido().
+        abertos_rm   = [t for t in tickets if eh_recebemai(t) and t.get("status") in (1, 2, 4)]
+        ids_excluido = ids_tecnico_excluido(abertos_rm)
+
         for t in tickets:
             if not eh_recebemai(t):
                 continue
@@ -228,6 +262,9 @@ def calcular():
             criacao  = t.get("date_creation") or t.get("date", "")
             data_mod = t.get("date_mod", "")
             tid      = t.get("id")
+
+            if status in (1, 2, 4) and tid in ids_excluido:
+                continue  # técnico excluído — não conta como aberto/crítico/radar SLA
 
             prod = produto(t)
             tp   = tipo(nome)
@@ -384,7 +421,7 @@ def periodo_customizado():
 
     tok = get_session()
     try:
-        total, resol, por_prod = 0, 0, {}
+        rm_tickets = []
         offset = 0
         while True:
             lote = api_get("Ticket", tok, {
@@ -404,14 +441,25 @@ def periodo_customizado():
                     break
                 if not eh_recebemai(t):
                     continue
-                total += 1
-                if t.get("status") in (5, 6):
-                    resol += 1
-                prod = produto(t)
-                por_prod[prod] = por_prod.get(prod, 0) + 1
+                rm_tickets.append(t)
             if parou or len(lote) < 100:
                 break
             offset += 100
+
+        # Chamados abertos de técnico excluído (ex: Marlon James) não contam
+        # nas estatísticas do período.
+        abertos_rm   = [t for t in rm_tickets if t.get("status") in (1, 2, 4)]
+        ids_excluido = ids_tecnico_excluido(abertos_rm)
+
+        total, resol, por_prod = 0, 0, {}
+        for t in rm_tickets:
+            if t.get("status") in (1, 2, 4) and t["id"] in ids_excluido:
+                continue
+            total += 1
+            if t.get("status") in (5, 6):
+                resol += 1
+            prod = produto(t)
+            por_prod[prod] = por_prod.get(prod, 0) + 1
 
         return jsonify({
             "inicio": inicio, "fim": fim,
@@ -481,6 +529,10 @@ def semana_detalhe():
                 break
             offset += 100
 
+        # Chamados abertos de técnico excluído (ex: Marlon James) não aparecem.
+        ids_excluido = ids_tecnico_excluido(abertos)
+        abertos = [a for a in abertos if a["id"] not in ids_excluido]
+
         abertos.sort(key=lambda x: x["dias"], reverse=True)
         return jsonify({
             "inicio":     inicio,
@@ -545,6 +597,8 @@ def buscar_ranking_tecnicos():
 
         resultados = {}
         for t, uid in zip(abertos, uids):
+            if uid in TECNICOS_EXCLUIDOS_IDS:
+                continue
             if not uid:
                 chave = "_sem_tecnico"
             else:
