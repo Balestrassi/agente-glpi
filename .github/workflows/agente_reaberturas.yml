@@ -6,6 +6,9 @@ on:
   # com pouca atividade ele atrasa horas em vez de minutos.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   reaberturas:
     runs-on: ubuntu-latest
@@ -20,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests gspread google-auth
+        run: pip install requests==2.34.2 gspread==6.2.1 google-auth==2.59.1
 
       - name: Restaurar cache de reaberturas
         uses: actions/cache@v4

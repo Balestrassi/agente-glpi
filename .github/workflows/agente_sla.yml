@@ -6,6 +6,9 @@ on:
   # com pouca atividade ele atrasa horas em vez de minutos.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   verificar-sla:
     runs-on: ubuntu-latest
@@ -20,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests holidays
+        run: pip install requests==2.34.2 holidays==0.105
 
       - name: Restaurar alertados
         uses: actions/cache@v4

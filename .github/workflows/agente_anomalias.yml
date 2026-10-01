@@ -6,6 +6,9 @@ on:
   # com pouca atividade ele atrasa horas em vez de minutos.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   detectar-anomalias:
     runs-on: ubuntu-latest
@@ -20,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests
+        run: pip install requests==2.34.2
 
       - name: Restaurar estado de alertas
         uses: actions/cache@v4

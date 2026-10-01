@@ -8,6 +8,9 @@ on:
   # schedule nativo, que atrasa em repos com pouca atividade.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   verificar-chamados:
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests holidays
+        run: pip install requests==2.34.2 holidays==0.105
 
       - name: Restaurar ids_vistos
         uses: actions/cache@v4

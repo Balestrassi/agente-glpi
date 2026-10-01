@@ -5,6 +5,9 @@ on:
     - cron: '7 12 * * 1'   # toda segunda-feira às 12h07 UTC = 09h07 Brasília (evita fila do minuto cheio)
   workflow_dispatch:         # permite disparo manual se precisar
 
+permissions:
+  contents: read
+
 jobs:
   gerar-relatorio:
     runs-on: ubuntu-latest
@@ -19,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests reportlab anthropic gspread google-auth
+        run: pip install requests==2.34.2 reportlab==5.0.1 anthropic==1.11.0 gspread==6.2.1 google-auth==2.59.1
 
       - name: Gerar e enviar relatório
         env:

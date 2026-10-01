@@ -5,6 +5,9 @@ on:
     - cron: '0 12 1 * *'   # Dia 1 de cada mês às 09h BRT (12h UTC)
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   relatorio-mensal:
     runs-on: ubuntu-latest
@@ -19,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests reportlab
+        run: pip install requests==2.34.2 reportlab==5.0.1
 
       - name: Gerar e enviar relatório mensal
         env:

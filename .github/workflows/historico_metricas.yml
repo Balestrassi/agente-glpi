@@ -5,6 +5,9 @@ on:
     - cron: '0 1 * * 1'   # Segunda 22h BRT (01h UTC), antes do relatório semanal
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   registrar-metricas:
     runs-on: ubuntu-latest
@@ -19,7 +22,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests gspread google-auth google-api-python-client
+        run: pip install requests==2.34.2 gspread==6.2.1 google-auth==2.59.1 google-api-python-client==2.201.0
 
       - name: Registrar métricas na planilha
         env:

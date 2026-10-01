@@ -1275,8 +1275,8 @@ function renderListaSemana(tipo) {
   cont.innerHTML = items.map(t => `
     <div class="ticket-row">
       <span class="ticket-id">#${t.id}</span>
-      <span class="ticket-title" style="flex:1"><a href="${t.url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${t.titulo}</a></span>
-      <span style="font-size:11px;color:var(--muted);min-width:90px">${t.cliente || "—"}</span>
+      <span class="ticket-title" style="flex:1"><a href="${encodeURI(t.url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${escapeHtml(t.titulo)}</a></span>
+      <span style="font-size:11px;color:var(--muted);min-width:90px">${escapeHtml(t.cliente || "—")}</span>
       <span style="font-size:11px;color:var(--muted);min-width:40px;text-align:right">${t.dias}d</span>
     </div>`).join("");
 }

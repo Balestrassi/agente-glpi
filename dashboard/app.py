@@ -8,6 +8,7 @@ import sys
 import json
 import html
 import time
+import hmac
 import threading
 import requests
 from datetime import datetime, timedelta, timezone
@@ -65,6 +66,42 @@ MAX_DIAS_PERIODO = 180  # limite para /api/periodo evitar consultas gigantes
 PERIODOS_DIA = ["Madrugada", "Manhã", "Tarde", "Noite"]
 DIAS_SEMANA  = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
+# Freio simples contra força bruta do DASHBOARD_TOKEN: X tentativas invalidas
+# por IP numa janela de tempo. Em memoria (nao sobrevive a reinicio/multiplos
+# processos), mas o Render roda este app com 1 worker gunicorn por padrao —
+# suficiente pra elevar bastante o custo de adivinhar o token por forca bruta.
+_RATE_LIMIT_JANELA_S = 60
+_RATE_LIMIT_MAX      = 20
+_falhas_auth = {}
+_falhas_lock = threading.Lock()
+
+
+def _ip_cliente():
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.remote_addr or "desconhecido"
+
+
+def _rate_limited(ip):
+    agora = time.time()
+    with _falhas_lock:
+        tentativas = [t for t in _falhas_auth.get(ip, []) if agora - t < _RATE_LIMIT_JANELA_S]
+        _falhas_auth[ip] = tentativas
+        return len(tentativas) >= _RATE_LIMIT_MAX
+
+
+def _registrar_falha(ip):
+    agora = time.time()
+    with _falhas_lock:
+        tentativas = [t for t in _falhas_auth.get(ip, []) if agora - t < _RATE_LIMIT_JANELA_S]
+        tentativas.append(agora)
+        _falhas_auth[ip] = tentativas
+        # Evita crescimento ilimitado do dict se muitos IPs diferentes falharem.
+        if len(_falhas_auth) > 1000:
+            for chave in list(_falhas_auth.keys())[:200]:
+                _falhas_auth.pop(chave, None)
+
 
 @app.before_request
 def _exigir_token():
@@ -74,10 +111,15 @@ def _exigir_token():
         return
     if not (request.path.startswith("/api/") or request.path == "/setup-webhook"):
         return
+    ip = _ip_cliente()
+    if _rate_limited(ip):
+        return jsonify({"error": "too many attempts"}), 429
     # Somente via header: token em query string vaza nos logs de acesso,
     # no historico do navegador e no cabecalho Referer.
+    # compare_digest evita vazar o tamanho/prefixo do token por timing.
     enviado = request.headers.get("X-Dashboard-Token", "")
-    if enviado != DASHBOARD_TOKEN:
+    if not hmac.compare_digest(enviado, DASHBOARD_TOKEN):
+        _registrar_falha(ip)
         return jsonify({"error": "unauthorized"}), 401
 
 
@@ -369,6 +411,10 @@ def ticket_detail(tid):
             t = t.json()
             if not isinstance(t, dict) or "id" not in t:
                 return jsonify({"error": "Não encontrado"}), 404
+            # Sem isso, qualquer ID valido do GLPI (de qualquer time, nao so
+            # Recebe Mais) poderia ser consultado por quem tem o DASHBOARD_TOKEN.
+            if not eh_recebemai(t):
+                return jsonify({"error": "Não encontrado"}), 404
 
             fups_raw = api_get(f"Ticket/{tid}/ITILFollowup", tok,
                                {"range": "0-5", "order": "DESC", "sort": "date_creation"})
@@ -398,7 +444,10 @@ def ticket_detail(tid):
         finally:
             close_session(tok)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Detalhe real so no log do servidor — a mensagem ao cliente nao deve
+        # vazar stack/host/detalhes internos da falha.
+        print(f"[ticket_detail] erro ao buscar #{tid}: {e}")
+        return jsonify({"error": "Erro ao buscar o chamado"}), 500
 
 
 @app.route("/api/periodo")
@@ -636,8 +685,9 @@ def tecnicos():
                     _tec_cache["data"] = buscar_ranking_tecnicos()
                     _tec_cache["ts"]   = time.time()
                 except Exception as e:
+                    print(f"[tecnicos] erro: {e}")
                     if _tec_cache["data"] is None:
-                        return jsonify({"error": str(e)}), 500
+                        return jsonify({"error": "Erro ao calcular o ranking de técnicos"}), 500
     return jsonify(_tec_cache["data"])
 
 
@@ -652,8 +702,9 @@ def stats():
                     _cache["data"] = calcular()
                     _cache["ts"]   = time.time()
                 except Exception as e:
+                    print(f"[stats] erro: {e}")
                     if not _cache["data"]:
-                        return jsonify({"error": str(e)}), 500
+                        return jsonify({"error": "Erro ao calcular as estatísticas"}), 500
     return jsonify(_cache["data"])
 
 
@@ -825,6 +876,11 @@ def bot_chamado(chat_id, arg):
     try:
         t = api_get(f"Ticket/{tid}", tok, {"expand_dropdowns": True})
         if not isinstance(t, dict) or "id" not in t:
+            _reply(chat_id, f"❌ Chamado #{tid} não encontrado.")
+            return
+        # Mesmo escopo do /api/ticket do dashboard: sem isso o bot responderia
+        # com dados de qualquer chamado do GLPI, nao so Recebe Mais.
+        if not eh_recebemai(t):
             _reply(chat_id, f"❌ Chamado #{tid} não encontrado.")
             return
         status_map = {1:"Novo",2:"Em andamento",4:"Pendente",5:"Resolvido",6:"Fechado"}
@@ -1062,7 +1118,7 @@ def telegram_webhook():
     # chamada veio mesmo do Telegram.
     if TELEGRAM_WEBHOOK_SECRET:
         recebido = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if recebido != TELEGRAM_WEBHOOK_SECRET:
+        if not hmac.compare_digest(recebido, TELEGRAM_WEBHOOK_SECRET):
             return "", 403
     data    = request.get_json(silent=True) or {}
     message = data.get("message") or data.get("edited_message")
