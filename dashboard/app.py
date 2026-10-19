@@ -708,6 +708,85 @@ def stats():
     return jsonify(_cache["data"])
 
 
+# ── Contas de e-mail dos clientes ─────────────────────────────────────
+# A lista (cliente / provedor / e-mail / senha) vem SOMENTE da variavel de
+# ambiente CONTAS_EMAIL_JSON, configurada no painel do Render. Nunca vai para
+# o codigo nem para o git: o repositorio e publico.
+
+def _carregar_contas_email():
+    bruto = os.environ.get("CONTAS_EMAIL_JSON", "").strip()
+    if not bruto:
+        return []
+    try:
+        dados = json.loads(bruto)
+    except ValueError:
+        print("[contas-email] CONTAS_EMAIL_JSON com JSON invalido — lista vazia")
+        return []
+    contas = []
+    for c in (dados if isinstance(dados, list) else []):
+        if isinstance(c, dict) and c.get("email") and c.get("senha"):
+            contas.append({k: str(c.get(k, "")).strip()
+                           for k in ("cliente", "provedor", "email", "senha")})
+    return contas
+
+
+_CONTAS_EMAIL = _carregar_contas_email()
+
+# Limite de revelacoes de senha por IP — nao impede quem tem o token, mas
+# impede despejar todas as senhas em poucos segundos.
+_REVELAR_JANELA_S = 60
+_REVELAR_MAX      = 10
+_revelacoes       = {}
+_revelacoes_lock  = threading.Lock()
+
+
+def _revelacao_liberada(ip):
+    agora = time.time()
+    with _revelacoes_lock:
+        recentes = [t for t in _revelacoes.get(ip, []) if agora - t < _REVELAR_JANELA_S]
+        if len(recentes) >= _REVELAR_MAX:
+            _revelacoes[ip] = recentes
+            return False
+        recentes.append(agora)
+        _revelacoes[ip] = recentes
+        if len(_revelacoes) > 1000:
+            for chave in list(_revelacoes.keys())[:200]:
+                _revelacoes.pop(chave, None)
+        return True
+
+
+def _sem_cache(resp):
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/api/contas-email")
+def contas_email():
+    """Lista as contas SEM as senhas."""
+    # Sem DASHBOARD_TOKEN o dashboard fica aberto a qualquer um: nao expor credenciais.
+    if not DASHBOARD_TOKEN:
+        return _sem_cache(jsonify({"error": "indisponivel"})), 503
+    return _sem_cache(jsonify([
+        {"id": i, "cliente": c["cliente"], "provedor": c["provedor"], "email": c["email"]}
+        for i, c in enumerate(_CONTAS_EMAIL)
+    ]))
+
+
+@app.route("/api/contas-email/<int:idx>/senha")
+def conta_email_senha(idx):
+    """Entrega a senha de UMA conta, registrando a consulta no log do servidor."""
+    if not DASHBOARD_TOKEN:
+        return _sem_cache(jsonify({"error": "indisponivel"})), 503
+    if not (0 <= idx < len(_CONTAS_EMAIL)):
+        return _sem_cache(jsonify({"error": "Não encontrado"})), 404
+    ip = _ip_cliente()
+    if not _revelacao_liberada(ip):
+        return _sem_cache(jsonify({"error": "too many attempts"})), 429
+    conta = _CONTAS_EMAIL[idx]
+    print(f"[contas-email] senha consultada: {conta['email']} ip={ip}")
+    return _sem_cache(jsonify({"senha": conta["senha"]}))
+
+
 # ── Histórico Google Sheets ───────────────────────────────────────────
 
 def _parse_horas(valor):

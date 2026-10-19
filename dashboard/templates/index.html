@@ -520,6 +520,37 @@
 
   .empty { font-size: 14px; color: var(--muted); text-align: center; padding: 1.5rem 1rem; }
 
+  /* ── E-mails de clientes ───────────────────────── */
+  .contas-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .contas-busca {
+    background: var(--track); border: none; border-radius: 10px;
+    height: 36px; padding: 0 12px; width: 280px; max-width: 100%;
+    color: var(--fg); font-size: 13px; font-family: inherit; outline: none;
+  }
+  .contas-busca::placeholder { color: var(--muted); }
+  .contas-busca:focus { background: var(--hover); }
+  .contas-aviso { font-size: 12px; color: var(--muted); }
+  .conta-grupo-titulo {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 6px;
+  }
+  .conta-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 12px; border-radius: 10px; background: var(--card-2); margin-bottom: 6px;
+  }
+  .conta-prov { font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; min-width: 64px; text-align: center; }
+  .conta-prov.zoho    { background: var(--primary-bg); color: var(--primary-ink); }
+  .conta-prov.webmail { background: var(--green-bg);   color: var(--green-ink); }
+  .conta-email { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; flex: 1 1 240px; word-break: break-all; }
+  .conta-senha { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; min-width: 120px; color: var(--muted); }
+  .conta-senha[data-visivel="1"] { color: var(--fg); user-select: all; }
+  .conta-btn {
+    background: var(--track); color: var(--fg); border: none; border-radius: 8px;
+    height: 28px; padding: 0 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .conta-btn:hover { background: var(--hover); }
+  .conta-btn:focus-visible, .contas-busca:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+
   /* ── Modal semana ──────────────────────────────── */
   .semana-tabs { display: flex; gap: 2px; margin-bottom: 16px; background: var(--track); padding: 2px; border-radius: 10px; align-self: flex-start; }
   .semana-tab {
@@ -716,6 +747,7 @@
     <div class="tab active" data-tab="geral"    onclick="mudarTab('geral')">Visão Geral</div>
     <div class="tab"        data-tab="tecnicos" onclick="mudarTab('tecnicos')">Por Técnico</div>
     <div class="tab"        data-tab="analise"  onclick="mudarTab('analise')">Análise &amp; Tendências</div>
+    <div class="tab"        data-tab="contas"   onclick="mudarTab('contas')">E-mails de clientes</div>
   </div>
 
   <!-- ── ABA: VISÃO GERAL ─────────────────────────────────────────── -->
@@ -798,6 +830,18 @@
     <div class="card">
       <div class="card-title">Chamados em aberto por técnico <span class="card-title-hint">clique para ver os chamados</span></div>
       <div id="lista-tecnicos"><div class="empty">Carregando...</div></div>
+    </div>
+  </div>
+
+  <!-- ── ABA: E-MAILS DE CLIENTES ─────────────────────────────────── -->
+  <div class="tab-panel" id="panel-contas">
+    <div class="card">
+      <div class="card-title">E-mails de clientes <span class="card-title-hint">senhas ficam ocultas até você pedir</span></div>
+      <div class="contas-toolbar">
+        <input type="search" id="contas-busca" class="contas-busca" placeholder="Buscar cliente ou e-mail" autocomplete="off" oninput="renderContas()" aria-label="Buscar cliente ou e-mail">
+        <span class="contas-aviso">A senha some sozinha após 20s. Cada consulta fica registrada no log do servidor.</span>
+      </div>
+      <div id="lista-contas"><div class="empty">Carregando...</div></div>
     </div>
   </div>
 
@@ -936,11 +980,125 @@ function mudarTab(nome) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === nome));
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
   document.getElementById("panel-" + nome).classList.add("active");
+  if (nome !== "contas") ocultarTodasSenhas();
   if (nome === "tecnicos" && !_tecnicosCarregados) carregarTecnicos();
   if (nome === "analise" && !_analiseCarregada) { carregarHistorico(); _analiseCarregada = true; }
+  if (nome === "contas" && !_contasCarregadas) carregarContas();
 }
 let _tecnicosCarregados = false;
 let _analiseCarregada = false;
+
+// ── E-mails de clientes ─────────────────────────────────────────────
+// A lista chega sem senhas. Cada senha so e buscada no servidor quando
+// alguem pede (revelar/copiar), fica visivel por 20s e nunca e guardada em
+// variavel global nem no DOM alem desse intervalo.
+let _contasCarregadas = false;
+let _contas = [];
+const _timersSenha = {};
+const SENHA_OCULTA = "••••••••";
+
+async function carregarContas() {
+  const el = document.getElementById("lista-contas");
+  try {
+    const r = await api("/api/contas-email");
+    const d = await r.json();
+    if (!Array.isArray(d)) throw new Error("resposta inesperada");
+    _contas = d;
+    _contasCarregadas = true;
+    renderContas();
+  } catch (e) {
+    el.innerHTML = '<div class="empty">Não foi possível carregar as contas.</div>';
+  }
+}
+
+function renderContas() {
+  ocultarTodasSenhas();
+  const el = document.getElementById("lista-contas");
+  const termo = (document.getElementById("contas-busca").value || "").trim().toLowerCase();
+  if (!_contas.length) {
+    el.innerHTML = '<div class="empty">Nenhuma conta configurada.</div>';
+    return;
+  }
+  const filtradas = _contas.filter(c =>
+    !termo || (c.cliente + " " + c.email + " " + c.provedor).toLowerCase().includes(termo));
+  if (!filtradas.length) {
+    el.innerHTML = '<div class="empty">Nenhuma conta encontrada para esta busca.</div>';
+    return;
+  }
+  const grupos = {};
+  filtradas.forEach(c => { (grupos[c.cliente || "Sem cliente"] = grupos[c.cliente || "Sem cliente"] || []).push(c); });
+  el.innerHTML = Object.keys(grupos).sort((a, b) => a.localeCompare(b, "pt-BR")).map(cliente => {
+    const linhas = grupos[cliente]
+      .slice().sort((a, b) => a.provedor.localeCompare(b.provedor, "pt-BR"))
+      .map(c => {
+        const prov = (c.provedor || "").toLowerCase() === "zoho" ? "zoho" : "webmail";
+        return `<div class="conta-row">
+          <span class="conta-prov ${prov}">${escapeHtml(c.provedor)}</span>
+          <span class="conta-email">${escapeHtml(c.email)}</span>
+          <span class="conta-senha" id="senha-${c.id}" data-visivel="0">${SENHA_OCULTA}</span>
+          <button class="conta-btn" type="button" onclick="copiarTexto(this, ${c.id}, 'email')">Copiar e-mail</button>
+          <button class="conta-btn" type="button" id="btn-revelar-${c.id}" onclick="alternarSenha(${c.id})">Revelar</button>
+          <button class="conta-btn" type="button" onclick="copiarTexto(this, ${c.id}, 'senha')">Copiar senha</button>
+        </div>`;
+      }).join("");
+    return `<div class="conta-grupo-titulo">${escapeHtml(cliente)}</div>${linhas}`;
+  }).join("");
+}
+
+async function _buscarSenha(id) {
+  const r = await api(`/api/contas-email/${id}/senha`);
+  const d = await r.json();
+  if (!d || typeof d.senha !== "string") throw new Error(d && d.error ? d.error : "falha");
+  return d.senha;
+}
+
+function ocultarSenha(id) {
+  clearTimeout(_timersSenha[id]);
+  delete _timersSenha[id];
+  const span = document.getElementById("senha-" + id);
+  const btn  = document.getElementById("btn-revelar-" + id);
+  if (span) { span.textContent = SENHA_OCULTA; span.dataset.visivel = "0"; }
+  if (btn)  btn.textContent = "Revelar";
+}
+function ocultarTodasSenhas() {
+  Object.keys(_timersSenha).forEach(id => ocultarSenha(id));
+}
+
+async function alternarSenha(id) {
+  const span = document.getElementById("senha-" + id);
+  const btn  = document.getElementById("btn-revelar-" + id);
+  if (!span || !btn) return;
+  if (span.dataset.visivel === "1") { ocultarSenha(id); return; }
+  btn.disabled = true;
+  try {
+    span.textContent = await _buscarSenha(id);   // textContent: nunca interpreta HTML
+    span.dataset.visivel = "1";
+    btn.textContent = "Ocultar";
+    _timersSenha[id] = setTimeout(() => ocultarSenha(id), 20000);
+  } catch (e) {
+    _feedbackBotao(btn, "Falhou", "Revelar");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _feedbackBotao(btn, msg, original) {
+  btn.textContent = msg;
+  setTimeout(() => { btn.textContent = original; }, 1500);
+}
+
+async function copiarTexto(btn, id, campo) {
+  const original = btn.textContent;
+  try {
+    const texto = campo === "senha" ? await _buscarSenha(id)
+                                    : (_contas.find(c => c.id === id) || {}).email;
+    if (!texto) throw new Error("vazio");
+    await navigator.clipboard.writeText(texto);
+    _feedbackBotao(btn, "Copiado ✓", original);
+  } catch (e) {
+    _feedbackBotao(btn, "Falhou", original);
+  }
+}
 
 // ── Filtro por cliente ──────────────────────────────────────────────
 function setFiltro(cliente) {
