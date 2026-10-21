@@ -590,7 +590,53 @@
     .heatmap-cell:hover { transform: none; }
   }
 
+  /* ── Paleta dos gráficos (azul + âmbar: validado p/ daltonismo, claro e escuro) ── */
+  :root { --serie-1: #3b82f6; --serie-2: #d97706; --serie-muted: rgba(142,142,147,.55);
+          --heat-1: #dbeafe; --heat-2: #93c5fd; --heat-3: #3b82f6; --heat-4: #1d4ed8; --heat-5: #1e3a8a; }
+
+  /* ── KPI: delta + sparkline ────────────────────── */
+  .kpi-sub .up   { color: var(--green-ink); font-weight: 600; }
+  .kpi-sub .down { color: var(--red-ink);   font-weight: 600; }
+  .kpi-spark { display: block; width: 100%; height: 30px; margin-top: 12px; }
+
+  /* ── Envelhecimento da fila ────────────────────── */
+  .fila-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); margin: -4px 0 12px; }
+  .fila-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .fila-box { max-height: 460px; overflow: auto; }
+  .fila-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .fila-table th { position: sticky; top: 0; z-index: 1; background: var(--card-bg); text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--card-brd); white-space: nowrap; }
+  .fila-table th button { all: unset; cursor: pointer; }
+  .fila-table th button.active { color: var(--fg); }
+  .fila-table th button.active::after { content: " ↓"; }
+  .fila-table th button.active.asc::after { content: " ↑"; }
+  .fila-table td { padding: 9px 8px; border-bottom: 1px solid var(--card-brd); font-size: 14px; vertical-align: middle; }
+  .fila-table tbody tr { cursor: pointer; transition: background .15s; }
+  .fila-table tbody tr:hover { background: var(--hover); }
+  .fila-table .num { text-align: right; }
+  .fila-table .c-id { color: var(--muted); font-size: 13px; font-weight: 500; }
+  .fila-table .c-tit { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .fila-table .c-cli { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .sla-cell { display: flex; align-items: center; gap: 10px; min-width: 170px; }
+  .sla-bar { position: relative; flex: 1; height: 10px; background: var(--track); border-radius: 5px; }
+  .sla-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+  .sla-bar s { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--muted); opacity: .5; }
+  .sla-val { min-width: 44px; text-align: right; font-size: 13px; font-weight: 600; }
+  .mini-grid.quatro { grid-template-columns: repeat(4, 1fr); }
+
+  /* ── Mapa de calor compacto ────────────────────── */
+  .heatmap-table { table-layout: fixed; }
+  .heatmap-table th:first-child, .heatmap-table td:first-child { width: 84px; }
+  .heatmap-cell { aspect-ratio: auto; height: 34px; border-radius: 6px; }
+  .heatmap-cell.vazio { background: var(--track) !important; }
+  .heat-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .heat-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
+  .saldo-title { font-size: 13px; color: var(--muted); margin: 18px 0 6px; }
+
   @media (max-width: 700px) {
+    .mini-grid.quatro { grid-template-columns: 1fr 1fr; }
+    .fila-table .c-cli, .fila-table .c-st, .fila-table .c-link { display: none; }
+    .fila-table .c-tit { max-width: 150px; }
+    .sla-cell { min-width: 120px; }
     .kpi-grid { grid-template-columns: 1fr 1fr; }
     .section-grid { grid-template-columns: 1fr; }
     .search-input { width: 130px; }
@@ -756,23 +802,25 @@
     <div class="kpi-grid">
       <div class="kpi">
         <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg><span class="kpi-label">Em aberto agora</span></div>
-        <div class="kpi-value v-amber" id="kv-abertos">—</div>
-        <div class="kpi-sub">Novo · Em andamento · Pendente</div>
+        <div class="kpi-value" id="kv-abertos">—</div>
+        <div class="kpi-sub"><span id="kv-criticos">—</span> há mais de 3 dias</div>
       </div>
       <div class="kpi">
-        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8.5 12.5 2.5 2.5 4.5-5"></path></svg><span class="kpi-label">Resolvidos hoje</span></div>
-        <div class="kpi-value v-green" id="kv-resolvidos">—</div>
-        <div class="kpi-sub" id="kv-resolvidos-sub">Atualizações de hoje</div>
+        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg><span class="kpi-label">Sem movimentação há +72h</span></div>
+        <div class="kpi-value v-red" id="kv-parados72">—</div>
+        <div class="kpi-sub">abertos sem nenhuma atualização</div>
       </div>
       <div class="kpi">
-        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path></svg><span class="kpi-label">Críticos (+3 dias)</span></div>
-        <div class="kpi-value v-red" id="kv-criticos">—</div>
-        <div class="kpi-sub">Em aberto há mais de 3 dias</div>
+        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16"></path><path d="M7 19v-6M12 19V7M17 19v-9"></path></svg><span class="kpi-label">Taxa · <span id="kv-taxa-per">última semana</span></span></div>
+        <div class="kpi-value" id="kv-taxa">—</div>
+        <div class="kpi-sub" id="kv-taxa-sub">—</div>
+        <svg class="kpi-spark" id="sp-taxa" aria-hidden="true"></svg>
       </div>
       <div class="kpi">
-        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16"></path><path d="M7 19v-6M12 19V7M17 19v-9"></path></svg><span class="kpi-label">Taxa esta semana</span></div>
-        <div class="kpi-value v-blue" id="kv-taxa">—</div>
-        <div class="kpi-sub" id="kv-taxa-sub">Resolução / abertos</div>
+        <div class="kpi-head"><svg class="kpi-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"></path></svg><span class="kpi-label">Entrada · <span id="kv-ent-per">última semana</span></span></div>
+        <div class="kpi-value" id="kv-entrada">—</div>
+        <div class="kpi-sub" id="kv-entrada-sub">—</div>
+        <svg class="kpi-spark" id="sp-ent" aria-hidden="true"></svg>
       </div>
     </div>
 
@@ -787,40 +835,47 @@
       </div>
     </div>
 
-    <div class="section-grid">
-      <div class="card">
-        <div class="card-title">Críticos — sem resolução há mais de 3 dias</div>
-        <div class="sort-bar">
-          <button class="sort-btn active" data-sort="dias"    onclick="setOrdenacao('dias')">Dias</button>
-          <button class="sort-btn"        data-sort="cliente" onclick="setOrdenacao('cliente')">Cliente</button>
-          <button class="sort-btn"        data-sort="status"  onclick="setOrdenacao('status')">Status</button>
-          <button class="btn-export" onclick="exportarCSV()">
-            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            CSV
-          </button>
-        </div>
-        <div class="ticket-list" id="lista-criticos"></div>
+    <div class="card" style="margin-bottom:1.5rem;">
+      <div class="card-title">Envelhecimento da fila
+        <button class="btn-export" style="margin-left:auto" onclick="exportarCSV()">
+          <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV
+        </button>
       </div>
-      <div class="card">
-        <div class="card-title">Resumo da semana atual</div>
-        <div class="mini-grid">
-          <div class="mini-stat"><div class="mini-v" id="ms-total">—</div><div class="mini-l">Abertos na semana</div></div>
-          <div class="mini-stat"><div class="mini-v" id="ms-resol">—</div><div class="mini-l">Resolvidos na semana</div></div>
-          <div class="mini-stat"><div class="mini-v v-blue" id="ms-taxa">—</div><div class="mini-l">Taxa de resolução</div></div>
-          <div class="mini-stat"><div class="mini-v v-red" id="ms-crit">—</div><div class="mini-l">Críticos abertos</div></div>
-        </div>
-        <div class="prog-wrap">
-          <div class="prog-label"><span>Progresso semanal</span><span id="prog-label-right">—</span></div>
-          <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
-        </div>
+      <div class="fila-legend">
+        <span>Barra = horas sem movimentação · marcas em 24h, 48h e 72h</span>
+        <span><i style="background:var(--serie-muted)"></i>até 24h</span>
+        <span><i style="background:var(--orange)"></i>24h–72h</span>
+        <span><i style="background:var(--red)"></i>acima de 72h</span>
+      </div>
+      <div class="fila-box">
+        <table class="fila-table">
+          <thead><tr>
+            <th><button data-sort="id" onclick="setOrdenacao('id')">#</button></th>
+            <th><button data-sort="titulo" onclick="setOrdenacao('titulo')">Chamado</button></th>
+            <th class="c-cli"><button data-sort="cliente" onclick="setOrdenacao('cliente')">Cliente</button></th>
+            <th class="c-st"><button data-sort="status" onclick="setOrdenacao('status')">Status</button></th>
+            <th class="num"><button data-sort="dias" onclick="setOrdenacao('dias')">Dias em aberto</button></th>
+            <th><button data-sort="horas" class="active" onclick="setOrdenacao('horas')">Sem movimentação</button></th>
+            <th class="c-link"></th>
+          </tr></thead>
+          <tbody id="lista-fila"></tbody>
+        </table>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:1.5rem;">
-      <div class="card-title"><span style="display:inline-flex;align-items:center;gap:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Radar SLA — abertos sem movimentação</span>
-        <span class="card-title-hint">horas corridas desde a última atualização · alertas: 24h / 48h / 72h</span>
+      <div class="card-title">Resumo da semana atual <span class="card-title-hint">semana em andamento</span></div>
+      <div class="mini-grid quatro">
+        <div class="mini-stat"><div class="mini-v" id="ms-total">—</div><div class="mini-l">Abertos na semana</div></div>
+        <div class="mini-stat"><div class="mini-v" id="ms-resol">—</div><div class="mini-l">Resolvidos na semana</div></div>
+        <div class="mini-stat"><div class="mini-v" id="ms-taxa">—</div><div class="mini-l">Taxa de resolução</div></div>
+        <div class="mini-stat"><div class="mini-v" id="kv-resolvidos">—</div><div class="mini-l">Resolvidos hoje</div></div>
       </div>
-      <div class="ticket-list" id="lista-parados"></div>
+      <div class="prog-wrap">
+        <div class="prog-label"><span>Progresso semanal</span><span id="prog-label-right">—</span></div>
+        <div class="prog-track"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+      </div>
     </div>
 
   </div>
@@ -869,17 +924,19 @@
     </div>
 
     <div class="section-grid">
-      <div class="trend-card card"><div class="card-title">Volume de chamados por semana <span class="card-title-hint">clique em uma barra para ver os chamados</span></div><canvas id="chart-volume" height="160" style="cursor:default;"></canvas></div>
+      <div class="trend-card card"><div class="card-title">Entrada × resolvidos por semana <span class="card-title-hint">clique numa semana para ver os chamados</span></div><canvas id="chart-volume" height="160" style="cursor:default;"></canvas>
+        <div class="saldo-title">Ficaram em aberto na semana · azul = pior semana</div><canvas id="chart-saldo" height="70"></canvas></div>
       <div class="trend-card card"><div class="card-title">Taxa de resolução % por semana</div><canvas id="chart-taxa" height="160"></canvas></div>
     </div>
 
     <div class="card" style="margin-top:16px;">
-      <div class="card-title">Tempo médio por semana <span class="card-title-hint">horas · menor é melhor</span></div>
+      <div class="card-title">Tempo médio por semana <span class="card-title-hint">horas · menor é melhor · semanas sem dado aparecem como quebra</span></div>
       <canvas id="chart-tempos" height="120"></canvas>
     </div>
 
     <div class="card" style="margin-top:16px;">
-      <div class="card-title">Mapa de calor — quando os chamados chegam</div>
+      <div class="card-title">Mapa de calor — quando os chamados chegam <span class="card-title-hint">noite e madrugada somadas · clique para ver</span></div>
+      <div class="heat-legend" id="heat-legend"></div>
       <div id="heatmap-container"><div class="empty">Carregando...</div></div>
     </div>
 
@@ -943,14 +1000,16 @@ const FONT_UI = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", s
 // Barras medem magnitude de uma unica medida -> uma unica matiz.
 // Vermelho/ambar/verde ficam reservados para estado de SLA e nunca viram
 // cor de serie (senao "Erro" em vermelho le como alerta, e nao como categoria).
-const COR_BARRA = "var(--primary)";
+const COR_BARRA = "var(--serie-muted)";   // cinza por padrão; destaque só no que importa
+const COR_DESTAQUE = "var(--serie-1)";
 const COR_PROD = {};
 const COR_TIPO = {};
 const ST_BADGE = { "Novo":'<span class="st-badge st-1">Novo</span>', "Em andamento":'<span class="st-badge st-2">Em andamento</span>', "Pendente":'<span class="st-badge st-4">Pendente</span>', "Resolvido":'<span class="st-badge st-5">Resolvido</span>', "Fechado":'<span class="st-badge st-6">Fechado</span>' };
 
 let _dados = null;
 let filtroCliente = null;
-let ordenacao = "dias";
+let ordenacao = "horas";
+let ordemAsc = false;
 let criticosVistos = null;
 
 // ── Tema ────────────────────────────────────────────────────────────
@@ -1117,27 +1176,33 @@ function aplicarFiltro() {
   document.querySelectorAll(".bar-row[data-cliente]").forEach(el => {
     el.classList.toggle("active", el.dataset.cliente === filtroCliente);
   });
-  renderCriticos(_dados ? _dados.criticos : []);
+  renderFila(_dados ? _dados.fila : []);
 }
 function limparFiltro() { filtroCliente = null; aplicarFiltro(); }
 
 // ── Ordenação ───────────────────────────────────────────────────────
 function setOrdenacao(campo) {
-  ordenacao = campo;
-  document.querySelectorAll(".sort-btn").forEach(b => b.classList.toggle("active", b.dataset.sort === campo));
-  renderCriticos(_dados ? _dados.criticos : []);
+  if (ordenacao === campo) ordemAsc = !ordemAsc;
+  else { ordenacao = campo; ordemAsc = (campo === "titulo" || campo === "cliente" || campo === "status"); }
+  document.querySelectorAll(".fila-table th button").forEach(b => {
+    b.classList.toggle("active", b.dataset.sort === campo);
+    b.classList.toggle("asc", b.dataset.sort === campo && ordemAsc);
+  });
+  renderFila(_dados ? _dados.fila : []);
 }
 
-// ── Render barras ───────────────────────────────────────────────────
+// ── Render barras (cinza; azul só no maior ou no filtrado) ─────────
 function renderBars(containerId, items, total, corMap, comFiltro) {
   const el = document.getElementById(containerId);
   if (!items || !items.length) { el.innerHTML = '<div class="empty">Nenhum dado</div>'; return; }
+  const maior = items[0][1];
   el.innerHTML = items.map(([label, qtd]) => {
     const pct = Math.round(qtd / total * 100);
-    const cor = corMap[label] || COR_BARRA;
+    const ativo = filtroCliente === label ? "active" : "";
+    const destaque = comFiltro && filtroCliente ? filtroCliente === label : qtd === maior;
+    const cor = corMap[label] || (destaque ? COR_DESTAQUE : COR_BARRA);
     const labelSeg = escapeHtml(label).replace(/'/g, "\\'");
     const dataAttr = comFiltro ? `data-cliente="${escapeHtml(label)}" onclick="setFiltro('${labelSeg}')"` : "";
-    const ativo = filtroCliente === label ? "active" : "";
     return `<div class="bar-row ${ativo}" ${dataAttr}>
       <span class="bar-label">${escapeHtml(label)}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor};"></div></div>
@@ -1146,45 +1211,57 @@ function renderBars(containerId, items, total, corMap, comFiltro) {
   }).join("");
 }
 
-// ── Render críticos ─────────────────────────────────────────────────
-function renderCriticos(items) {
-  const el = document.getElementById("lista-criticos");
-  if (!items || !items.length) { el.innerHTML = '<div class="empty">Nenhum chamado crítico</div>'; return; }
+// ── Envelhecimento da fila (une Críticos + Radar SLA) ──────────────
+function fmtHoras(h) { return h >= 72 ? (Math.round(h / 24 * 10) / 10).toString().replace(".", ",") + "d" : h + "h"; }
+function corSla(h)   { return h > 72 ? "var(--red)" : (h > 24 ? "var(--orange)" : "var(--serie-muted)"); }
 
-  let filtrados = filtroCliente ? items.filter(t => t.cliente === filtroCliente) : items.slice();
+function renderFila(items) {
+  const el = document.getElementById("lista-fila");
+  if (!el) return;
+  if (!items || !items.length) { el.innerHTML = '<tr><td colspan="7"><div class="empty">Nenhum chamado em aberto</div></td></tr>'; return; }
 
-  if (ordenacao === "dias") filtrados.sort((a,b) => b.dias - a.dias);
-  else if (ordenacao === "cliente") filtrados.sort((a,b) => (a.cliente||"").localeCompare(b.cliente||""));
-  else if (ordenacao === "status") filtrados.sort((a,b) => (a.status_nome||"").localeCompare(b.status_nome||""));
+  let linhas = filtroCliente ? items.filter(t => t.cliente === filtroCliente) : items.slice();
+  if (!linhas.length) { el.innerHTML = '<tr><td colspan="7"><div class="empty">Nenhum chamado para este filtro</div></td></tr>'; return; }
 
-  if (!filtrados.length) { el.innerHTML = '<div class="empty">Nenhum chamado crítico para este filtro</div>'; return; }
+  const chave = { id: t => t.id, titulo: t => t.titulo || "", cliente: t => t.cliente || "", status: t => t.status_nome || "", dias: t => t.dias, horas: t => t.horas }[ordenacao] || (t => t.horas);
+  linhas.sort((a, b) => {
+    const va = chave(a), vb = chave(b);
+    const c = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return ordemAsc ? c : -c;
+  });
 
-  el.innerHTML = filtrados.map(t => {
-    const cls   = t.dias >= 7 ? "alto" : "medio";
-    const badge = ST_BADGE[t.status_nome] || "";
-    return `<div class="ticket-row" data-cliente="${escapeHtml(t.cliente || '')}" onclick="abrirModal(${t.id})">
-      <span class="ticket-id">#${t.id}</span>
-      <span class="ticket-title">${escapeHtml(t.titulo)}</span>
-      <span class="dias-chip ${cls}">${t.dias}d</span>
-      ${badge}
-      <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
-    </div>`;
+  const max = Math.max(96, ...linhas.map(t => t.horas));
+  const marcas = [24, 48, 72].map(h => `<s style="left:${h / max * 100}%"></s>`).join("");
+  el.innerHTML = linhas.map(t => {
+    const badge = ST_BADGE[t.status_nome] || escapeHtml(t.status_nome || "");
+    const larg  = Math.min(100, t.horas / max * 100);
+    const cor   = corSla(t.horas);
+    const corTxt = t.horas > 72 ? "var(--red-ink)" : (t.horas > 24 ? "var(--orange-ink)" : "var(--muted)");
+    return `<tr data-cliente="${escapeHtml(t.cliente || '')}" onclick="abrirModal(${t.id})">
+      <td class="c-id">#${t.id}</td>
+      <td class="c-tit" title="${escapeHtml(t.titulo)}">${escapeHtml(t.titulo)}</td>
+      <td class="c-cli">${escapeHtml(t.cliente || "—")}</td>
+      <td class="c-st">${badge}</td>
+      <td class="num">${t.dias}d</td>
+      <td><div class="sla-cell"><div class="sla-bar"><i style="width:${larg}%;background:${cor}"></i>${marcas}</div><span class="sla-val" style="color:${corTxt}">${fmtHoras(t.horas)}</span></div></td>
+      <td class="c-link"><a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">GLPI ↗</a></td>
+    </tr>`;
   }).join("");
 }
 
 // ── Export CSV ──────────────────────────────────────────────────────
 function exportarCSV() {
-  if (!_dados || !_dados.criticos || !_dados.criticos.length) { alert("Nenhum dado para exportar."); return; }
-  const linhas = [["ID", "Titulo", "Cliente", "Status", "Dias em aberto", "Link"]];
-  _dados.criticos.forEach(t => {
-    linhas.push([t.id, (t.titulo||"").replace(/"/g,"'"), t.cliente||"", t.status_nome||"", t.dias, `${GLPI_BASE}/front/ticket.form.php?id=${t.id}`]);
+  if (!_dados || !_dados.fila || !_dados.fila.length) { alert("Nenhum dado para exportar."); return; }
+  const linhas = [["ID", "Titulo", "Cliente", "Status", "Dias em aberto", "Horas sem movimentacao", "Link"]];
+  _dados.fila.forEach(t => {
+    linhas.push([t.id, (t.titulo||"").replace(/"/g,"'"), t.cliente||"", t.status_nome||"", t.dias, t.horas, `${GLPI_BASE}/front/ticket.form.php?id=${t.id}`]);
   });
   const csv = linhas.map(l => l.map(v => `"${v}"`).join(";")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url  = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `chamados_criticos_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `fila_rm_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1220,14 +1297,12 @@ function aplicar(d) {
 
   _dados = d;
   document.getElementById("kv-abertos").textContent    = d.abertos;
-  document.getElementById("kv-resolvidos").textContent = d.resolvidos_hoje;
   document.getElementById("kv-criticos").textContent   = d.criticos_count;
-  document.getElementById("kv-taxa").textContent       = d.taxa_semana + "%";
-  document.getElementById("kv-taxa-sub").textContent   = `${d.sem_resol} de ${d.sem_total} esta semana`;
+  document.getElementById("kv-parados72").textContent  = d.parados_72_count != null ? d.parados_72_count : "—";
+  document.getElementById("kv-resolvidos").textContent = d.resolvidos_hoje;
   document.getElementById("ms-total").textContent = d.sem_total;
   document.getElementById("ms-resol").textContent = d.sem_resol;
   document.getElementById("ms-taxa").textContent  = d.taxa_semana + "%";
-  document.getElementById("ms-crit").textContent  = d.criticos_count;
   const prog = Math.min(d.taxa_semana, 100);
   document.getElementById("prog-fill").style.width        = prog + "%";
   document.getElementById("prog-label-right").textContent = `${d.sem_resol} / ${d.sem_total}`;
@@ -1235,59 +1310,50 @@ function aplicar(d) {
   document.getElementById("footer-ts").textContent        = d.atualizado;
   renderBars("bars-prod", d.por_prod, d.total_abertos_prod, COR_PROD, true);
   renderBars("bars-tipo", d.por_tipo, d.total_abertos_prod, COR_TIPO, false);
-  renderCriticos(d.criticos);
-  renderParados(d.parados || []);
+  renderFila(d.fila || []);
   renderHeatmap(d.heatmap, d.heatmap_dias, d.heatmap_periodos);
 }
 
-// ── Radar SLA ───────────────────────────────────────────────────────
-function renderParados(items) {
-  const el = document.getElementById("lista-parados");
-  if (!el) return;
-  if (!items || !items.length) {
-    el.innerHTML = '<div class="empty">Nenhum chamado parado há mais de 12h</div>';
-    return;
-  }
-  el.innerHTML = items.map(t => {
-    const cls   = t.horas >= 48 ? "alto" : (t.horas >= 24 ? "medio" : "");
-    const risco = t.horas >= 72 ? "var(--red)" : (t.horas >= 48 ? "var(--red)" : (t.horas >= 24 ? "var(--orange)" : "var(--gray)"));
-    const badge = ST_BADGE[t.status_nome] || "";
-    const hTxt  = t.horas >= 48 ? (Math.round(t.horas / 24 * 10) / 10) + "d" : t.horas + "h";
-    return `<div class="ticket-row" data-cliente="${escapeHtml(t.cliente || '')}" onclick="abrirModal(${t.id})">
-      <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${risco};" aria-hidden="true"></span>
-      <span class="ticket-id">#${t.id}</span>
-      <span class="ticket-title">${escapeHtml(t.titulo)}</span>
-      <span class="dias-chip ${cls}" title="sem movimentação">${hTxt}</span>
-      ${badge}
-      <a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${t.id}" target="_blank" onclick="event.stopPropagation()">GLPI ↗</a>
-    </div>`;
-  }).join("");
-}
+// Turnos exibidos: noite e madrugada somadas (quase não há chamados nelas).
+// Cada coluna lista os índices de PERIODOS_DIA do backend que ela soma.
+const TURNOS = [ { nome: "Manhã", idx: [1] }, { nome: "Tarde", idx: [2] }, { nome: "Noite/Madrugada", idx: [3, 0] } ];
+const HEAT_CORES = ["--heat-1", "--heat-2", "--heat-3", "--heat-4", "--heat-5"];
 
-// ── Heatmap ─────────────────────────────────────────────────────────
 function renderHeatmap(heatmap, dias, periodos) {
   const el = document.getElementById("heatmap-container");
-  if (!heatmap) { el.innerHTML = '<div class="empty">Sem dados suficientes</div>'; return; }
+  const lg = document.getElementById("heat-legend");
+  if (!heatmap) { el.innerHTML = '<div class="empty">Sem dados suficientes</div>'; if (lg) lg.innerHTML = ""; return; }
+  const valor = (i, turno) => turno.idx.reduce((s, j) => s + (heatmap[i][j] || 0), 0);
   let max = 0;
-  heatmap.forEach(row => row.forEach(v => { if (v > max) max = v; }));
-  if (max === 0) { el.innerHTML = '<div class="empty">Sem chamados registrados ainda</div>'; return; }
+  dias.forEach((_, i) => TURNOS.forEach(t => { max = Math.max(max, valor(i, t)); }));
+  if (max === 0) { el.innerHTML = '<div class="empty">Sem chamados registrados ainda</div>'; if (lg) lg.innerHTML = ""; return; }
+
+  // 5 faixas fixas de mesmo tamanho entre 1 e o máximo
+  const passo = max / 5;
+  const faixa = v => Math.min(4, Math.floor((v - 1) / passo));
 
   let html = '<table class="heatmap-table"><thead><tr><th></th>';
-  periodos.forEach(p => html += `<th>${p}</th>`);
+  TURNOS.forEach(t => html += `<th>${t.nome}</th>`);
   html += '</tr></thead><tbody>';
   dias.forEach((dia, i) => {
     html += `<tr><td class="heatmap-row-label">${dia}</td>`;
-    heatmap[i].forEach((v, j) => {
-      const intensidade = v / max;
-      const alpha = 0.1 + intensidade * 0.82;
-      const acao  = v > 0 ? ` onclick="abrirModalHeatmap(${i},${j})" style="background:rgba(var(--primary-rgb),${alpha});cursor:pointer"` : ` style="background:rgba(var(--primary-rgb),${alpha})"`;
-      const dica  = `${dia} · ${periodos[j]} · ${v} chamado(s)${v > 0 ? ' — clique para ver' : ''}`;
-      html += `<td><div class="heatmap-cell"${acao} title="${dica}">${v > 0 ? v : ''}</div></td>`;
+    TURNOS.forEach((t, k) => {
+      const v = valor(i, t);
+      const dica = `${dia} · ${t.nome} · ${v} chamado(s)${v > 0 ? ' — clique para ver' : ''}`;
+      if (!v) { html += `<td><div class="heatmap-cell vazio" title="${dica}"></div></td>`; return; }
+      const f = faixa(v);
+      const corTxt = f >= 2 ? "#fff" : "#1e3a8a";
+      html += `<td><div class="heatmap-cell" onclick="abrirModalHeatmap(${i},${k})" style="background:var(${HEAT_CORES[f]});color:${corTxt};cursor:pointer" title="${dica}">${v}</div></td>`;
     });
     html += '</tr>';
   });
   html += '</tbody></table>';
   el.innerHTML = html;
+
+  if (lg) lg.innerHTML = HEAT_CORES.map((c, f) => {
+    const de = Math.floor(1 + f * passo), ate = f === 4 ? max : Math.floor(1 + (f + 1) * passo) - 1;
+    return `<span><i style="background:var(${c})"></i>${de === ate || ate < de ? de : de + "–" + ate}</span>`;
+  }).join("");
 }
 
 // ── Carregar dados ──────────────────────────────────────────────────
@@ -1459,12 +1525,14 @@ function fecharModalSemana(evt, forcar) {
 }
 
 // ── Detalhe de celula do mapa de calor ─────────────────────────────
-function abrirModalHeatmap(diaIdx, periodoIdx) {
+function abrirModalHeatmap(diaIdx, turnoIdx) {
   if (!_dados || !_dados.heatmap_tickets) return;
-  const tickets = _dados.heatmap_tickets[diaIdx][periodoIdx] || [];
+  const turno = TURNOS[turnoIdx];
+  if (!turno) return;
+  const tickets = turno.idx.flatMap(j => _dados.heatmap_tickets[diaIdx][j] || []);
   if (!tickets.length) return;
 
-  document.getElementById("heatmap-titulo").textContent = `${_dados.heatmap_dias[diaIdx]} · ${_dados.heatmap_periodos[periodoIdx]}`;
+  document.getElementById("heatmap-titulo").textContent = `${_dados.heatmap_dias[diaIdx]} · ${turno.nome}`;
   document.getElementById("heatmap-count").textContent  = `${tickets.length} chamado(s)`;
   document.getElementById("heatmap-lista").innerHTML = tickets.map(t => {
     const badge = ST_BADGE[t.status_nome] || "";
@@ -1621,6 +1689,36 @@ async function consultarPeriodo() {
 let chartVolume = null;
 let chartTaxa   = null;
 let chartTempos = null;
+let chartSaldo  = null;
+
+// Início da semana a partir de "20/07–26/07/2026" (ano vem do fim; virada de ano tratada)
+function inicioSemana(periodo) {
+  const m = /(\d{2})\/(\d{2})\D+(\d{2})\/(\d{2})\/(\d{4})/.exec(periodo || "");
+  if (!m) return null;
+  let ano = +m[5];
+  if (+m[2] > +m[4]) ano -= 1;
+  return new Date(Date.UTC(ano, +m[2] - 1, +m[1]));
+}
+// Insere semanas ausentes como null, para a linha quebrar em vez de ligar pontos distantes
+function comLacunas(dados) {
+  const out = [];
+  dados.forEach((d, i) => {
+    if (i > 0) {
+      const a = inicioSemana(dados[i - 1].periodo), b = inicioSemana(d.periodo);
+      if (a && b) {
+        const faltam = Math.round((b - a) / (7 * 864e5)) - 1;
+        for (let k = 1; k <= faltam && k <= 8; k++) {
+          const ini = new Date(a.getTime() + k * 7 * 864e5), fim = new Date(ini.getTime() + 6 * 864e5);
+          const f = x => String(x.getUTCDate()).padStart(2, "0") + "/" + String(x.getUTCMonth() + 1).padStart(2, "0");
+          out.push({ periodo: `${f(ini)}–${f(fim)}/${fim.getUTCFullYear()} (sem dado)`, lacuna: true });
+        }
+      }
+    }
+    out.push(d);
+  });
+  return out;
+}
+const rotuloCurto = p => (p || "").slice(0, 5);
 
 async function carregarHistorico() {
   try {
@@ -1630,58 +1728,80 @@ async function carregarHistorico() {
     renderComparativo(dados);
     if (!dados || dados.length === 0) return;
 
-    const labels     = dados.map(d => d.periodo);
-    const totais     = dados.map(d => d.total);
-    const resolvidos = dados.map(d => d.resolvidos);
-    const taxas      = dados.map(d => d.taxa);
-    const tTecnico   = dados.map(d => d.t_tecnico);
-    const tCiclo     = dados.map(d => d.t_ciclo);
+    const serie = comLacunas(dados);
+    const val = k => serie.map(d => d.lacuna ? null : d[k]);
+    const labels     = serie.map(d => rotuloCurto(d.periodo));
+    const totais     = val("total");
+    const resolvidos = val("resolvidos");
+    const saldo      = serie.map(d => d.lacuna ? null : (d.total - d.resolvidos));
     const corGrid  = cssVar("--grid");
     const corTexto = cssVar("--muted");
-    const corPrim  = cssVar("--primary");
-    // canvas nao entende var(): a cor do fill precisa ser rgba literal
-    const fillPrim = "rgba(" + cssVar("--primary-rgb") + ",0.12)";
-    const corVerde = cssVar("--green");
-    const corLaran = cssVar("--orange");
-    const corRoxo  = cssVar("--purple");
+    const azul  = cssVar("--serie-1");
+    const ambar = cssVar("--serie-2");
+    const cinza = cssVar("--serie-muted");
+    const faixa = "rgba(59,130,246,0.14)";   // canvas não entende var(): rgba literal do azul
+    const linha = (label, data, cor, extra) => ({ label, data, borderColor: cor, backgroundColor: cor, borderWidth: 2, pointRadius: 2.5, pointHoverRadius: 5, pointBackgroundColor: cor, tension: 0, spanGaps: false, fill: false, ...extra });
     const baseOpts = {
       responsive: true,
-      plugins: { legend: { position: "bottom", labels: { font: { size: 12, family: FONT_UI }, boxWidth: 12, usePointStyle: true, pointStyle: "circle", color: corTexto } } },
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { position: "bottom", labels: { font: { size: 12, family: FONT_UI }, boxWidth: 10, usePointStyle: true, pointStyle: "circle", color: corTexto } },
+        tooltip: { callbacks: { title: items => serie[items[0].dataIndex].periodo } }
+      },
       scales: {
-        x: { ticks: { font: { size: 11, family: FONT_UI }, maxRotation: 30, color: corTexto }, grid: { display: false } },
-        y: { beginAtZero: true, ticks: { font: { size: 11, family: FONT_UI }, color: corTexto }, grid: { color: corGrid, drawTicks: false } }
+        x: { ticks: { font: { size: 11, family: FONT_UI }, maxRotation: 0, autoSkip: true, maxTicksLimit: 7, color: corTexto }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { font: { size: 11, family: FONT_UI }, color: corTexto, maxTicksLimit: 5 }, grid: { color: corGrid, drawTicks: false } }
       }
     };
+    const abrirSemana = (evt, elements) => {
+      if (!elements.length) return;
+      const item = serie[elements[0].index];
+      if (item && !item.lacuna) abrirModalSemana(item);
+    };
+    const cursor = (evt, elements) => {
+      const item = elements.length ? serie[elements[0].index] : null;
+      evt.native.target.style.cursor = item && !item.lacuna ? "pointer" : "default";
+    };
+
     if (chartVolume) chartVolume.destroy();
     chartVolume = new Chart(document.getElementById("chart-volume"), {
-      type: "bar",
+      type: "line",
       data: { labels, datasets: [
-        { label: "Total",      data: totais,     backgroundColor: corPrim,  borderWidth: 0, borderRadius: 4, borderSkipped: false },
-        { label: "Resolvidos", data: resolvidos, backgroundColor: corVerde, borderWidth: 0, borderRadius: 4, borderSkipped: false },
+        linha("Entrada", totais, azul),
+        // fill: "-1" pinta a faixa entre Resolvidos e Entrada = não resolvidos na semana
+        linha("Resolvidos", resolvidos, ambar, { fill: { target: "-1" }, backgroundColor: faixa }),
       ]},
-      options: {
-        ...baseOpts,
-        onHover: (evt, elements) => {
-          evt.native.target.style.cursor = elements.length ? "pointer" : "default";
-        },
-        onClick: (evt, elements) => {
-          if (!elements.length) return;
-          abrirModalSemana(dados[elements[0].index]);
-        },
-      }
+      options: { ...baseOpts, onHover: cursor, onClick: abrirSemana,
+        plugins: { ...baseOpts.plugins, tooltip: { callbacks: {
+          title: items => serie[items[0].dataIndex].periodo,
+          footer: items => { const s = saldo[items[0].dataIndex]; return s == null ? "" : `Não resolvidos: ${s}`; }
+        } } } }
     });
+
+    if (chartSaldo) chartSaldo.destroy();
+    const pior = Math.max(...saldo.filter(v => v != null));
+    chartSaldo = new Chart(document.getElementById("chart-saldo"), {
+      type: "bar",
+      data: { labels, datasets: [{ label: "Não resolvidos", data: saldo, backgroundColor: saldo.map(v => v === pior ? azul : cinza), borderRadius: 4, borderSkipped: false, maxBarThickness: 28 }] },
+      options: { ...baseOpts, onHover: cursor, onClick: abrirSemana,
+        plugins: { legend: { display: false }, tooltip: baseOpts.plugins.tooltip },
+        scales: { x: { ...baseOpts.scales.x, ticks: { ...baseOpts.scales.x.ticks, display: false } }, y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, maxTicksLimit: 3 } } } }
+    });
+
     if (chartTaxa) chartTaxa.destroy();
     chartTaxa = new Chart(document.getElementById("chart-taxa"), {
       type: "line",
-      data: { labels, datasets: [{ label: "Taxa de resolução %", data: taxas, borderColor: corPrim, backgroundColor: fillPrim, borderWidth: 2, pointRadius: 4, pointBackgroundColor: corPrim, fill: true, tension: 0.35 }] },
-      options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } } } }
+      data: { labels, datasets: [linha("Taxa de resolução %", val("taxa"), azul)] },
+      options: { ...baseOpts, plugins: { ...baseOpts.plugins, legend: { display: false } },
+        scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, max: 100, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "%" } } } }
     });
+
     if (chartTempos) chartTempos.destroy();
     chartTempos = new Chart(document.getElementById("chart-tempos"), {
       type: "line",
       data: { labels, datasets: [
-        { label: "T. Técnico (h)", data: tTecnico, borderColor: corLaran, borderWidth: 2, pointRadius: 3.5, pointBackgroundColor: corLaran, fill: false, tension: 0.35 },
-        { label: "T. Ciclo (h)",   data: tCiclo,   borderColor: corRoxo,  borderWidth: 2, pointRadius: 3.5, pointBackgroundColor: corRoxo,  fill: false, tension: 0.35 },
+        linha("T. Ciclo (h)",   val("t_ciclo"),   azul),
+        linha("T. Técnico (h)", val("t_tecnico"), ambar),
       ]},
       options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, callback: v => v + "h" } } } }
     });
@@ -1690,21 +1810,45 @@ async function carregarHistorico() {
   }
 }
 
-// ── Tendência no KPI de taxa ────────────────────────────────────────
+// ── KPIs de semana fechada + sparklines ─────────────────────────────
+// Compara a última semana fechada com a anterior (semana atual está pela metade).
+function desenharSpark(svgId, valores) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const v = valores.filter(x => x != null);
+  if (v.length < 2) { svg.innerHTML = ""; return; }
+  const W = svg.clientWidth || 160, H = 30;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const min = Math.min(...v), max = Math.max(...v), rng = (max - min) || 1;
+  const x = i => 2 + i * (W - 6) / (v.length - 1);
+  const y = n => H - 4 - (n - min) / rng * (H - 8);
+  const pts = v.map((n, i) => `${x(i).toFixed(1)},${y(n).toFixed(1)}`).join(" ");
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="var(--serie-muted)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<circle cx="${x(v.length - 1)}" cy="${y(v[v.length - 1])}" r="3" fill="var(--serie-1)"/>`;
+}
+
 async function tendenciaKpi() {
   try {
     const r = await api("/api/historico");
     if (!r.ok) return;
     const hist = await r.json();
     if (!hist || !hist.length) return;
-    const ultima = hist[hist.length - 1];
-    const sub = document.getElementById("kv-taxa-sub");
-    if (!sub || !_dados) return;
-    const diff = _dados.taxa_semana - ultima.taxa;
-    const seta = Math.abs(diff) < 1 ? "↔" : (diff > 0 ? "↑" : "↓");
-    const cor  = Math.abs(diff) < 1 ? "var(--muted2)" : (diff > 0 ? "var(--green-ink)" : "var(--red-ink)");
-    sub.innerHTML = escapeHtml(sub.textContent) +
-      ` · <span style="color:${cor};font-weight:600;">${seta} ${Math.abs(diff).toFixed(0)}pp vs sem. passada</span>`;
+    const ult = hist[hist.length - 1], ant = hist[hist.length - 2];
+    const per = rotuloCurto(ult.periodo) + "–" + (ult.periodo || "").slice(6, 11);
+    document.getElementById("kv-taxa-per").textContent = per;
+    document.getElementById("kv-ent-per").textContent  = per;
+    document.getElementById("kv-taxa").textContent     = Math.round(ult.taxa) + "%";
+    document.getElementById("kv-entrada").textContent  = ult.total;
+    const sinal = (d, suf) => (d > 0 ? "+" : d < 0 ? "−" : "±") + Math.abs(Math.round(d)) + suf;
+    if (ant) {
+      const dt = ult.taxa - ant.taxa, de = ult.total - ant.total;
+      document.getElementById("kv-taxa-sub").innerHTML =
+        `<span class="${dt >= 0 ? "up" : "down"}">${sinal(dt, " pp")}</span> vs semana anterior`;
+      document.getElementById("kv-entrada-sub").textContent = `${sinal(de, "")} vs semana anterior`;
+    }
+    const ultimas = hist.slice(-12);
+    desenharSpark("sp-taxa", ultimas.map(h => h.taxa));
+    desenharSpark("sp-ent",  ultimas.map(h => h.total));
   } catch (e) { /* histórico indisponível */ }
 }
 
