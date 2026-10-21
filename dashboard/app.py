@@ -280,6 +280,7 @@ def calcular():
         resolvidos_hoje = 0
         criticos        = []
         parados         = []   # radar SLA: abertos sem movimentação
+        fila            = []   # todos os abertos, com dias em aberto e horas sem movimentação
         por_prod        = {}
         por_tipo        = {}
         sem_total       = 0
@@ -342,6 +343,14 @@ def calcular():
                     horas_parado = (agora_naive - dt_ref).total_seconds() / 3600
                 except Exception:
                     horas_parado = 0
+                fila.append({
+                    "id":          tid,
+                    "titulo":      (nome[:60] + "…") if len(nome) > 60 else nome,
+                    "cliente":     cli,
+                    "status_nome": {1: "Novo", 2: "Em andamento", 4: "Pendente"}.get(status, "?"),
+                    "dias":        dias_aberto(criacao),
+                    "horas":       max(0, round(horas_parado)),
+                })
                 if horas_parado >= SLA_RADAR_HORAS:
                     parados.append({
                         "id":          tid,
@@ -367,6 +376,7 @@ def calcular():
 
         criticos.sort(key=lambda x: x["dias"], reverse=True)
         parados.sort(key=lambda x: x["horas"], reverse=True)
+        fila.sort(key=lambda x: x["horas"], reverse=True)
         total_abertos_prod = sum(por_prod.values()) or 1
 
         return {
@@ -376,6 +386,8 @@ def calcular():
             "criticos":         criticos[:50],
             "parados":          parados[:30],
             "parados_count":    len(parados),
+            "parados_72_count": sum(1 for f in fila if f["horas"] > 72),
+            "fila":             fila[:100],
             "por_prod":         sorted(por_prod.items(), key=lambda x: x[1], reverse=True),
             "por_tipo":         sorted(por_tipo.items(), key=lambda x: x[1], reverse=True),
             "total_abertos_prod": total_abertos_prod,
