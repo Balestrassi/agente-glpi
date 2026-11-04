@@ -193,7 +193,7 @@ def parse_tickets(raw):
         t.get("id"),
         t.get("name", ""),
         t.get("date_creation") or t.get("date", ""),
-        t.get("date_mod", ""),
+        t.get("solvedate") or t.get("date_mod", ""),  # fim do ciclo = solução
         t.get("urgency", 3),
         t.get("status", 1),
         produto(t),
@@ -487,7 +487,7 @@ def tempo_medio(story, tempos, frt_list):
     story.append(nota_box(
         f"Calculado sobre {len(tempos)} chamados resolvidos/fechados criados no período. "
         "<b>Tempo Técnico</b>: criação → último comentário do técnico. "
-        "<b>Tempo Total</b>: criação → última atualização do chamado. "
+        "<b>Tempo Total</b>: criação → solução do chamado. "
         "Ambos em horas úteis (seg–sex, 08h–18h)."
     ))
     story.append(Spacer(1,0.4*cm))
@@ -503,7 +503,7 @@ def tempo_medio(story, tempos, frt_list):
     ],[
         Paragraph("<b>Tempo Técnico Médio</b><br/><font color='#7F8C8D' size='8'>criação → último comentário do técnico</font>",
                   S("lb1",fontName="Helvetica",fontSize=9,alignment=TA_CENTER,leading=13)),
-        Paragraph("<b>Tempo Total Médio de Ciclo</b><br/><font color='#7F8C8D' size='8'>criação → última atualização</font>",
+        Paragraph("<b>Tempo Total Médio de Ciclo</b><br/><font color='#7F8C8D' size='8'>criação → solução</font>",
                   S("lb2",fontName="Helvetica",fontSize=9,alignment=TA_CENTER,leading=13)),
     ]], colWidths=[8.5*cm,8.5*cm], rowHeights=[2*cm,1*cm])
     duo.setStyle(TableStyle([

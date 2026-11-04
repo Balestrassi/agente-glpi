@@ -505,7 +505,7 @@ def tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico, tp_tipo_ciclo, tp
     nota = Table([[Paragraph(
         f"Calculado sobre {len(tempos)} chamados resolvidos/fechados criados na semana. "
         "<b>Tempo Técnico</b>: criação → último comentário do técnico. "
-        "<b>Tempo Total</b>: criação → última atualização do chamado. "
+        "<b>Tempo Total</b>: criação → solução do chamado. "
         "Ambos em horas úteis: seg–sex, 08h–18h (10h/dia).",
         ParagraphStyle("n",fontName="Helvetica-Oblique",fontSize=8,
                        textColor=colors.HexColor("#7F8C8D"),leading=12)
@@ -531,7 +531,7 @@ def tempo_medio(story, tempos, tp_prod_ciclo, tp_prod_tecnico, tp_tipo_ciclo, tp
                   ParagraphStyle("lab1",fontName="Helvetica",fontSize=9,
                                  alignment=TA_CENTER,leading=13)),
         Paragraph("<b>Tempo Total Médio de Ciclo</b><br/>"
-                  "<font color='#7F8C8D' size='8'>criação → última atualização do chamado</font>",
+                  "<font color='#7F8C8D' size='8'>criação → solução do chamado</font>",
                   ParagraphStyle("lab2",fontName="Helvetica",fontSize=9,
                                  alignment=TA_CENTER,leading=13)),
     ]], colWidths=[8.5*cm, 8.5*cm], rowHeights=[2*cm, 1*cm])
@@ -818,7 +818,7 @@ def main():
             t.get("id"),
             t.get("name", ""),
             t.get("date_creation") or t.get("date", ""),
-            t.get("date_mod", ""),
+            t.get("solvedate") or t.get("date_mod", ""),  # fim do ciclo = solução
             t.get("urgency", 3),
             t.get("status", 1),
             produto(t),

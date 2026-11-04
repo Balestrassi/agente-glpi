@@ -385,7 +385,7 @@ def main():
                 continue
             tid      = t["id"]
             criacao  = t.get("date_creation") or ""
-            atualizacao = t.get("date_mod") or ""
+            atualizacao = t.get("solvedate") or t.get("date_mod") or ""  # fim do ciclo = solução
             req_id   = requester_numeric_id(tok2, tid)
 
             h_ciclo  = horas_uteis(criacao, atualizacao)
