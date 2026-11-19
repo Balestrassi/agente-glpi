@@ -932,6 +932,24 @@ def _dev_dados_glpi(tid):
         close_session(tok)
 
 
+def _dev_avisar_telegram(c):
+    """Avisa no Telegram que o Felipe concluiu um chamado. Texto puro (sem Markdown)."""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    ref = f"#{c['glpi_id']} - {c['titulo']}" if c["glpi_id"] else c["titulo"]
+    msg = f"✅ Felipe Aggio deu o chamado {ref} como concluído."
+    if c["cliente"]:
+        msg += f"\nCliente: {c['cliente']}"
+    if c["glpi_id"]:
+        msg += f"\nFinalizar no GLPI: {_link(c['glpi_id'])}"
+    try:
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                      json={"chat_id": TELEGRAM_CHAT_ID, "text": msg,
+                            "disable_web_page_preview": True}, timeout=10)
+    except Exception as e:
+        print(f"[dev-felipe] falha ao avisar telegram: {e}")
+
+
 @app.route("/api/dev-felipe", methods=["GET"])
 def dev_listar():
     try:
@@ -980,12 +998,18 @@ def dev_atualizar(uid):
             n = _dev_achar(ws, uid)
             if not n:
                 return jsonify({"error": "Não encontrado"}), 404
+            alerta = None
             if "status" in d:
                 if d["status"] not in DEV_STATUS:
                     return jsonify({"error": "Status inválido"}), 400
+                linha = _dev_linha(ws.row_values(n))
                 ws.update_cell(n, 6, d["status"])
+                if d["status"] == "Concluído" and linha["status"] != "Concluído":
+                    alerta = linha
             if "obs" in d:
                 ws.update_cell(n, 5, str(d["obs"]).strip()[:500])
+        if alerta:
+            _dev_avisar_telegram(alerta)
         return jsonify({"ok": True})
     except Exception as e:
         print(f"[dev-felipe] erro ao atualizar: {e}")
