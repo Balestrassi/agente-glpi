@@ -529,6 +529,14 @@
   }
   .contas-busca::placeholder { color: var(--muted); }
   .contas-busca:focus { background: var(--hover); }
+  .dev-form { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .dev-row { display: flex; gap: 10px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--card-brd); flex-wrap: wrap; }
+  .dev-row.feito .dev-tit { text-decoration: line-through; color: var(--muted); }
+  .dev-tit { flex: 1 1 240px; font-weight: 500; font-size: 14px; }
+  .dev-sub { font-size: 12px; color: var(--muted); }
+  .dev-sel { background: var(--track); color: var(--fg); border: none; border-radius: 8px; height: 30px; padding: 0 8px; font-family: inherit; font-size: 13px; }
+  .dev-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 4px 8px; }
+  .dev-x:hover { color: var(--red); }
   .contas-aviso { font-size: 12px; color: var(--muted); }
   .conta-grupo-titulo {
     font-size: 12px; font-weight: 600; color: var(--muted);
@@ -794,6 +802,7 @@
     <div class="tab"        data-tab="tecnicos" onclick="mudarTab('tecnicos')">Por Técnico</div>
     <div class="tab"        data-tab="analise"  onclick="mudarTab('analise')">Análise &amp; Tendências</div>
     <div class="tab"        data-tab="contas"   onclick="mudarTab('contas')">E-mails de clientes</div>
+    <div class="tab"        data-tab="devfelipe" onclick="mudarTab('devfelipe')">Chamados Dev Felipe</div>
   </div>
 
   <!-- ── ABA: VISÃO GERAL ─────────────────────────────────────────── -->
@@ -897,6 +906,22 @@
         <span class="contas-aviso">A senha some sozinha após 20s. Cada consulta fica registrada no log do servidor.</span>
       </div>
       <div id="lista-contas"><div class="empty">Carregando...</div></div>
+    </div>
+  </div>
+
+  <!-- ── ABA: CHAMADOS DEV FELIPE ─────────────────────────────────── -->
+  <div class="tab-panel" id="panel-devfelipe">
+    <div class="card">
+      <div class="card-title">Chamados Dev Felipe <span class="card-title-hint">lista manual</span></div>
+      <form class="dev-form" onsubmit="adicionarDev(event)">
+        <input id="dev-glpi" class="contas-busca" style="width:110px" inputmode="numeric" placeholder="ID GLPI" aria-label="ID GLPI">
+        <input id="dev-titulo" class="contas-busca" style="width:260px" placeholder="Título (opcional se tiver ID)" aria-label="Título">
+        <input id="dev-cliente" class="contas-busca" style="width:140px" placeholder="Cliente" aria-label="Cliente">
+        <input id="dev-obs" class="contas-busca" style="width:260px" placeholder="Observação" aria-label="Observação">
+        <button class="btn-export" style="margin-left:0" type="submit">Adicionar</button>
+      </form>
+      <div id="dev-msg" class="contas-aviso" style="margin:6px 0"></div>
+      <div id="lista-dev"><div class="empty">Carregando...</div></div>
     </div>
   </div>
 
@@ -1043,6 +1068,79 @@ function mudarTab(nome) {
   if (nome === "tecnicos" && !_tecnicosCarregados) carregarTecnicos();
   if (nome === "analise" && !_analiseCarregada) { carregarHistorico(); _analiseCarregada = true; }
   if (nome === "contas" && !_contasCarregadas) carregarContas();
+  if (nome === "devfelipe") carregarDev();
+}
+
+// ── Chamados Dev Felipe ─────────────────────────────────────────────
+let _dev = [];
+async function apiDev(url, metodo, corpo) {
+  if (_semAutorizacao) throw _erroAutorizacao();
+  const r = await fetch(url, {
+    method: metodo || "GET",
+    headers: { "X-Dashboard-Token": getDashToken(), "Content-Type": "application/json" },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  if (r.status === 401) {
+    localStorage.removeItem("dash_token");
+    _semAutorizacao = true;
+    pedirToken("🔒 Token ausente ou inválido.\nInforme o token de acesso:");
+    throw _erroAutorizacao();
+  }
+  return r;
+}
+async function carregarDev() {
+  const el = document.getElementById("lista-dev");
+  try {
+    const r = await apiDev("/api/dev-felipe");
+    const d = await r.json();
+    if (!Array.isArray(d)) throw new Error(d.error || "erro");
+    _dev = d;
+    renderDev();
+  } catch (e) {
+    if (!e.naoAutorizado) el.innerHTML = '<div class="empty">Não foi possível carregar a lista.</div>';
+  }
+}
+function renderDev() {
+  const el = document.getElementById("lista-dev");
+  if (!_dev.length) { el.innerHTML = '<div class="empty">Nenhum chamado na lista</div>'; return; }
+  const ordem = { "Aberto": 0, "Em andamento": 1, "Concluído": 2 };
+  const lista = _dev.slice().sort((a, b) => (ordem[a.status] ?? 0) - (ordem[b.status] ?? 0));
+  el.innerHTML = lista.map(c => {
+    const link = c.glpi_id ? `<a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${encodeURIComponent(c.glpi_id)}" target="_blank">#${escapeHtml(c.glpi_id)} ↗</a>` : "";
+    const sub = [c.cliente, c.obs, c.criado].filter(Boolean).map(escapeHtml).join(" · ");
+    const opts = ["Aberto", "Em andamento", "Concluído"].map(s => `<option${s === c.status ? " selected" : ""}>${s}</option>`).join("");
+    return `<div class="dev-row ${c.status === "Concluído" ? "feito" : ""}">
+      <div class="dev-tit">${escapeHtml(c.titulo)}<div class="dev-sub">${sub}</div></div>
+      ${link}
+      <select class="dev-sel" onchange="statusDev('${escapeHtml(c.uid)}', this.value)" aria-label="Status">${opts}</select>
+      <button class="dev-x" title="Remover" onclick="removerDev('${escapeHtml(c.uid)}')">✕</button>
+    </div>`;
+  }).join("");
+}
+async function adicionarDev(ev) {
+  ev.preventDefault();
+  const msg = document.getElementById("dev-msg");
+  const ids = ["glpi", "titulo", "cliente", "obs"];
+  const corpo = {};
+  ids.forEach(k => corpo[k === "glpi" ? "glpi_id" : k] = document.getElementById("dev-" + k).value);
+  msg.textContent = "Salvando...";
+  try {
+    const r = await apiDev("/api/dev-felipe", "POST", corpo);
+    const d = await r.json();
+    if (!r.ok) { msg.textContent = d.error || "Erro ao salvar"; return; }
+    ids.forEach(k => document.getElementById("dev-" + k).value = "");
+    msg.textContent = "";
+    carregarDev();
+  } catch (e) { if (!e.naoAutorizado) msg.textContent = "Erro ao salvar"; }
+}
+async function statusDev(uid, status) {
+  try { await apiDev("/api/dev-felipe/" + encodeURIComponent(uid), "PATCH", { status }); } catch (e) {}
+  carregarDev();
+}
+async function removerDev(uid) {
+  if (!confirm("Remover este chamado da lista?")) return;
+  try { await apiDev("/api/dev-felipe/" + encodeURIComponent(uid), "DELETE"); } catch (e) {}
+  carregarDev();
 }
 let _tecnicosCarregados = false;
 let _analiseCarregada = false;

@@ -877,6 +877,136 @@ def historico():
     return jsonify(_hist_cache["data"])
 
 
+# ── Chamados Dev Felipe (lista manual, salva na planilha) ────────────
+DEV_ABA     = "Chamados Dev Felipe"
+DEV_HEADER  = ["UID", "ID GLPI", "Título", "Cliente", "Observação", "Status", "Criado em"]
+DEV_STATUS  = ("Aberto", "Em andamento", "Concluído")
+_dev_lock   = threading.Lock()
+
+
+def _dev_ws():
+    """Abre (criando se preciso) a aba da lista. Levanta se Sheets indisponivel."""
+    if not _GSPREAD_OK or not GOOGLE_JSON or not SHEET_ID:
+        raise RuntimeError("planilha não configurada")
+    creds = Credentials.from_service_account_info(
+        json.loads(GOOGLE_JSON),
+        scopes=["https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"],
+    )
+    sh = gspread.authorize(creds).open_by_key(SHEET_ID)
+    try:
+        return sh.worksheet(DEV_ABA)
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=DEV_ABA, rows=200, cols=len(DEV_HEADER))
+        ws.append_row(DEV_HEADER)
+        return ws
+
+
+def _dev_linha(row):
+    row = list(row) + [""] * (len(DEV_HEADER) - len(row))
+    return {"uid": row[0], "glpi_id": row[1], "titulo": row[2], "cliente": row[3],
+            "obs": row[4], "status": row[5] or "Aberto", "criado": row[6]}
+
+
+def _dev_achar(ws, uid):
+    """Numero da linha (1-based) do UID, ou None."""
+    for i, v in enumerate(ws.col_values(1), start=1):
+        if i > 1 and v == uid:
+            return i
+    return None
+
+
+def _dev_dados_glpi(tid):
+    """Titulo/cliente do chamado no GLPI (so se for Recebe Mais). None se nao achar."""
+    tok = get_session()
+    try:
+        r = requests.get(f"{GLPI_URL}/apirest.php/Ticket/{tid}", headers=_h(tok),
+                         params={"expand_dropdowns": True}, timeout=15)
+        t = r.json() if r.status_code == 200 else None
+        if not isinstance(t, dict) or "id" not in t or not eh_recebemai(t):
+            return None
+        entidade = html.unescape((t.get("entities_id") or "").strip())
+        cliente  = [x.strip() for x in entidade.split(">")][-1] if entidade else ""
+        return {"titulo": html.unescape(t.get("name", "") or ""), "cliente": cliente}
+    finally:
+        close_session(tok)
+
+
+@app.route("/api/dev-felipe", methods=["GET"])
+def dev_listar():
+    try:
+        with _dev_lock:
+            rows = _dev_ws().get_all_values()
+        return jsonify([_dev_linha(r) for r in rows[1:] if r and r[0]])
+    except Exception as e:
+        print(f"[dev-felipe] erro ao listar: {e}")
+        return jsonify({"error": "Planilha indisponível"}), 503
+
+
+@app.route("/api/dev-felipe", methods=["POST"])
+def dev_adicionar():
+    d = request.get_json(silent=True) or {}
+    glpi_id = str(d.get("glpi_id") or "").strip().lstrip("#")
+    titulo  = str(d.get("titulo")  or "").strip()[:200]
+    cliente = str(d.get("cliente") or "").strip()[:80]
+    obs     = str(d.get("obs")     or "").strip()[:500]
+    if glpi_id and not glpi_id.isdigit():
+        return jsonify({"error": "ID GLPI inválido"}), 400
+    try:
+        if glpi_id and not (titulo and cliente):
+            info = _dev_dados_glpi(int(glpi_id))
+            if info:
+                titulo  = titulo  or info["titulo"]
+                cliente = cliente or info["cliente"]
+        if not titulo:
+            return jsonify({"error": "Informe o título (ou um ID GLPI válido)"}), 400
+        uid = str(int(time.time() * 1000))
+        agora = datetime.now(BRASILIA).strftime("%d/%m/%Y %H:%M")
+        with _dev_lock:
+            _dev_ws().append_row([uid, glpi_id, titulo, cliente, obs, "Aberto", agora],
+                                 value_input_option="RAW")
+        return jsonify({"ok": True, "uid": uid})
+    except Exception as e:
+        print(f"[dev-felipe] erro ao adicionar: {e}")
+        return jsonify({"error": "Não foi possível salvar"}), 503
+
+
+@app.route("/api/dev-felipe/<uid>", methods=["PATCH"])
+def dev_atualizar(uid):
+    d = request.get_json(silent=True) or {}
+    try:
+        with _dev_lock:
+            ws = _dev_ws()
+            n = _dev_achar(ws, uid)
+            if not n:
+                return jsonify({"error": "Não encontrado"}), 404
+            if "status" in d:
+                if d["status"] not in DEV_STATUS:
+                    return jsonify({"error": "Status inválido"}), 400
+                ws.update_cell(n, 6, d["status"])
+            if "obs" in d:
+                ws.update_cell(n, 5, str(d["obs"]).strip()[:500])
+        return jsonify({"ok": True})
+    except Exception as e:
+        print(f"[dev-felipe] erro ao atualizar: {e}")
+        return jsonify({"error": "Não foi possível salvar"}), 503
+
+
+@app.route("/api/dev-felipe/<uid>", methods=["DELETE"])
+def dev_remover(uid):
+    try:
+        with _dev_lock:
+            ws = _dev_ws()
+            n = _dev_achar(ws, uid)
+            if not n:
+                return jsonify({"error": "Não encontrado"}), 404
+            ws.delete_rows(n)
+        return jsonify({"ok": True})
+    except Exception as e:
+        print(f"[dev-felipe] erro ao remover: {e}")
+        return jsonify({"error": "Não foi possível remover"}), 503
+
+
 # ── Telegram Bot ─────────────────────────────────────────────────────
 
 def _reply(chat_id, text):
