@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import requests
 import html
 import holidays
@@ -44,9 +45,10 @@ def carregar_estado():
             data = json.load(f)
         # Migrar formato antigo (lista simples) para novo formato
         if isinstance(data, list):
-            return {"chamados": data, "followups": {}}
+            return {"chamados": data, "followups": {}, "telegram_pendentes": []}
+        data.setdefault("telegram_pendentes", [])
         return data
-    return {"chamados": [], "followups": {}}
+    return {"chamados": [], "followups": {}, "telegram_pendentes": []}
 
 
 def salvar_estado(estado):
@@ -163,17 +165,60 @@ def postar_primeiro_atendimento(session_token, chamado_id):
         return False
 
 
-def enviar_telegram(mensagem):
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": mensagem},
-            timeout=10,
-        )
-        return r.status_code == 200
-    except Exception as e:
-        print(f"Erro ao enviar Telegram: {e}")
-        return False
+def enviar_telegram(mensagem, tentativas=3):
+    """Envia ao Telegram com novas tentativas. Retorna True só se o Telegram
+    confirmou (HTTP 200). Antes, um 'Connection reset by peer' fazia o aviso
+    do chamado 16709 se perder sem nova tentativa."""
+    for i in range(1, tentativas + 1):
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": mensagem},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                return True
+            print(f"Telegram respondeu {r.status_code} (tentativa {i}/{tentativas}): {r.text[:200]}")
+            if r.status_code == 429:
+                try:
+                    espera = int(r.json().get("parameters", {}).get("retry_after", 5))
+                except Exception:
+                    espera = 5
+                time.sleep(min(espera, 30))
+                continue
+            if 400 <= r.status_code < 500:
+                return False  # erro de requisição (token, chat_id): repetir não resolve
+        except Exception as e:
+            print(f"Erro ao enviar Telegram (tentativa {i}/{tentativas}): {e}")
+        if i < tentativas:
+            time.sleep(3 * i)
+    return False
+
+
+def notificar(mensagem, pendentes):
+    """Envia; se falhar, guarda em 'pendentes' para o próximo run tentar."""
+    if enviar_telegram(mensagem):
+        print("  -> Notificacao Telegram enviada!")
+        return True
+    pendentes.append(mensagem)
+    print("  -> FALHA no Telegram — aviso guardado para o próximo run")
+    return False
+
+
+def reenviar_pendentes(pendentes):
+    """Tenta de novo os avisos que falharam em runs anteriores.
+    Devolve a lista do que continua pendente."""
+    if not pendentes:
+        return []
+    print(f"Reenviando {len(pendentes)} aviso(s) pendente(s) do Telegram...")
+    restantes = []
+    for msg in pendentes:
+        if enviar_telegram(msg):
+            print("  -> Aviso pendente enviado")
+        else:
+            restantes.append(msg)
+    # Limite para nao acumular sem fim se o erro for permanente (token/chat_id)
+    return restantes[-20:]
 
 
 def ja_tem_primeiro_atendimento(session_token, chamado_id):
@@ -213,7 +258,7 @@ def chamado_e_recente(chamado, horas=2):
         return True
 
 
-def processar_novo_chamado(session_token, chamado):
+def processar_novo_chamado(session_token, chamado, pendentes):
     """Posta o primeiro atendimento e notifica o Telegram.
     Retorna True se o GLPI confirmou a postagem, False caso contrário.
     Só retorna True quando o chamado está de fato registrado no GLPI — evita
@@ -240,12 +285,11 @@ def processar_novo_chamado(session_token, chamado):
         f"Primeiro atendimento ja postado automaticamente.\n"
         f"Acesse: {GLPI_URL}/front/ticket.form.php?id={chamado_id}"
     )
-    enviar_telegram(mensagem)
-    print(f"  -> Notificacao Telegram enviada!")
+    notificar(mensagem, pendentes)
     return True
 
 
-def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
+def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id, pendentes):
     chamado_id = chamado["id"]
     titulo = html.unescape(chamado.get("name", "Sem titulo") or "Sem titulo")
 
@@ -288,8 +332,8 @@ def verificar_resposta_cliente(session_token, chamado, ultimo_followup_id):
                 f"Mensagem: {conteudo}\n\n"
                 f"Acesse: {GLPI_URL}/front/ticket.form.php?id={chamado_id}"
             )
-            enviar_telegram(mensagem)
-            print(f"  -> Cliente respondeu no #{chamado_id}, notificacao enviada!")
+            print(f"  -> Cliente respondeu no #{chamado_id}")
+            notificar(mensagem, pendentes)
             break
 
     return novo_id
@@ -301,6 +345,15 @@ def main():
     estado = carregar_estado()
     chamados_vistos = set(estado["chamados"])
     followups_vistos = estado["followups"]
+    # Avisos que falharam em runs anteriores: reenvia antes de tudo, inclusive
+    # fora do horario comercial (o aviso ja deveria ter chegado).
+    pendentes = reenviar_pendentes(estado.get("telegram_pendentes", []))
+
+    def salvar():
+        salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos,
+                       "telegram_pendentes": pendentes})
+
+    salvar()
 
     session = get_session()
     chamados = buscar_chamados_recebemais(session)
@@ -311,7 +364,7 @@ def main():
         for c in chamados:
             followups = buscar_followups(session, c["id"])
             followups_vistos[str(c["id"])] = followups[0]["id"] if followups else 0
-        salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
+        salvar()
         print(f"{len(chamados_vistos)} chamados existentes registrados.")
         close_session(session)
         return
@@ -342,7 +395,7 @@ def main():
             # Chamado novo sem primeiro atendimento: só marca como visto se o
             # POST ao GLPI for confirmado — evita sumir com o chamado em caso
             # de falha silenciosa da API.
-            if processar_novo_chamado(session, chamado):
+            if processar_novo_chamado(session, chamado, pendentes):
                 chamados_vistos.add(cid)
             else:
                 # Falha na postagem: não adiciona ao cache para que o próximo
@@ -352,16 +405,16 @@ def main():
         followups_vistos[str(cid)] = followups[0]["id"] if followups else 0
         # Salva a cada chamado: se uma falha de rede interromper o loop no
         # meio, notificacoes ja enviadas nao sao reenviadas no proximo run.
-        salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
+        salvar()
 
     # Verifica respostas de clientes em chamados ja conhecidos
     for chamado in chamados:
         if chamado["id"] in chamados_vistos and chamado["id"] not in {c["id"] for c in novos}:
             chave = str(chamado["id"])
             ultimo_id = followups_vistos.get(chave, 0)
-            novo_ultimo_id = verificar_resposta_cliente(session, chamado, ultimo_id)
+            novo_ultimo_id = verificar_resposta_cliente(session, chamado, ultimo_id, pendentes)
             followups_vistos[chave] = novo_ultimo_id
-            salvar_estado({"chamados": list(chamados_vistos), "followups": followups_vistos})
+            salvar()
 
     close_session(session)
 
