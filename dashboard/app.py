@@ -879,7 +879,12 @@ def historico():
 
 # ── Chamados Dev Felipe (lista manual, salva na planilha) ────────────
 DEV_ABA     = "Chamados Dev Felipe"
-DEV_HEADER  = ["UID", "ID GLPI", "Título", "Cliente", "Observação", "Status", "Criado em"]
+DEV_HEADER  = ["UID", "ID GLPI", "Título", "Cliente", "Observação", "Status", "Criado em",
+               "Análise", "Link PDF"]
+DEV_COL_OBS, DEV_COL_STATUS, DEV_COL_ANALISE, DEV_COL_LINK = 5, 6, 8, 9
+DEV_MAX_ANALISE = 5000
+DEV_MAX_LINK    = 500
+_dev_header_ok  = False   # migracao do cabecalho feita neste processo
 DEV_STATUS  = ("Aberto", "Em andamento", "Concluído")
 _dev_lock   = threading.Lock()
 
@@ -893,19 +898,46 @@ def _dev_ws():
         scopes=["https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive"],
     )
+    global _dev_header_ok
     sh = gspread.authorize(creds).open_by_key(SHEET_ID)
     try:
-        return sh.worksheet(DEV_ABA)
+        ws = sh.worksheet(DEV_ABA)
     except gspread.WorksheetNotFound:
         ws = sh.add_worksheet(title=DEV_ABA, rows=200, cols=len(DEV_HEADER))
         ws.append_row(DEV_HEADER)
+        _dev_header_ok = True
         return ws
+    if not _dev_header_ok:
+        # Aba criada antes das colunas Análise/Link PDF: acrescenta so o que falta.
+        atual = ws.row_values(1)
+        if atual[:len(DEV_HEADER)] != DEV_HEADER:
+            if ws.col_count < len(DEV_HEADER):
+                ws.add_cols(len(DEV_HEADER) - ws.col_count)
+            ws.update([DEV_HEADER], "A1")
+        _dev_header_ok = True
+    return ws
+
+
+def _dev_set(ws, linha, coluna, valor):
+    """Grava uma celula em modo RAW: texto digitado pelo usuario nunca vira formula."""
+    ws.update([[valor]], gspread.utils.rowcol_to_a1(linha, coluna), raw=True)
+
+
+def _dev_link_valido(link):
+    """So http/https: bloqueia javascript:, data: etc. antes de ir pra planilha/tela."""
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(link)
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and bool(u.netloc)
 
 
 def _dev_linha(row):
     row = list(row) + [""] * (len(DEV_HEADER) - len(row))
     return {"uid": row[0], "glpi_id": row[1], "titulo": row[2], "cliente": row[3],
-            "obs": row[4], "status": row[5] or "Aberto", "criado": row[6]}
+            "obs": row[4], "status": row[5] or "Aberto", "criado": row[6],
+            "analise": row[7], "link": row[8]}
 
 
 def _dev_achar(ws, uid):
@@ -981,7 +1013,7 @@ def dev_adicionar():
         uid = str(int(time.time() * 1000))
         agora = datetime.now(BRASILIA).strftime("%d/%m/%Y %H:%M")
         with _dev_lock:
-            _dev_ws().append_row([uid, glpi_id, titulo, cliente, obs, "Aberto", agora],
+            _dev_ws().append_row([uid, glpi_id, titulo, cliente, obs, "Aberto", agora, "", ""],
                                  value_input_option="RAW")
         return jsonify({"ok": True, "uid": uid})
     except Exception as e:
@@ -999,15 +1031,30 @@ def dev_atualizar(uid):
             if not n:
                 return jsonify({"error": "Não encontrado"}), 404
             alerta = None
+            # Valida tudo antes de gravar qualquer coisa: PATCH e tudo-ou-nada.
+            if "status" in d and d["status"] not in DEV_STATUS:
+                return jsonify({"error": "Status inválido"}), 400
+            link = None
+            if "link" in d:
+                link = str(d["link"] or "").strip()
+                if len(link) > DEV_MAX_LINK:
+                    return jsonify({"error": "Link muito longo"}), 400
+                if link and not _dev_link_valido(link):
+                    return jsonify({"error": "Link inválido (use http:// ou https://)"}), 400
+            if "analise" in d and len(str(d["analise"] or "")) > DEV_MAX_ANALISE:
+                return jsonify({"error": f"Análise muito longa (máx. {DEV_MAX_ANALISE} caracteres)"}), 400
+
             if "status" in d:
-                if d["status"] not in DEV_STATUS:
-                    return jsonify({"error": "Status inválido"}), 400
                 linha = _dev_linha(ws.row_values(n))
-                ws.update_cell(n, 6, d["status"])
+                _dev_set(ws, n, DEV_COL_STATUS, d["status"])
                 if d["status"] == "Concluído" and linha["status"] != "Concluído":
                     alerta = linha
             if "obs" in d:
-                ws.update_cell(n, 5, str(d["obs"]).strip()[:500])
+                _dev_set(ws, n, DEV_COL_OBS, str(d["obs"]).strip()[:500])
+            if "analise" in d:
+                _dev_set(ws, n, DEV_COL_ANALISE, str(d["analise"] or "").strip())
+            if link is not None:
+                _dev_set(ws, n, DEV_COL_LINK, link)
         if alerta:
             _dev_avisar_telegram(alerta)
         return jsonify({"ok": True})

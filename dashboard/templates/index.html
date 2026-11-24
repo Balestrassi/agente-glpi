@@ -537,6 +537,14 @@
   .dev-sel { background: var(--track); color: var(--fg); border: none; border-radius: 8px; height: 30px; padding: 0 8px; font-family: inherit; font-size: 13px; }
   .dev-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 4px 8px; }
   .dev-x:hover { color: var(--red); }
+  .dev-btn { background: var(--track); color: var(--fg); border: none; border-radius: 8px; height: 30px; padding: 0 10px; font-family: inherit; font-size: 13px; cursor: pointer; }
+  .dev-btn.tem { font-weight: 600; }
+  .dev-pdf { font-size: 13px; white-space: nowrap; }
+  .dev-painel { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px; }
+  .dev-painel textarea, .dev-painel input { background: var(--track); color: var(--fg); border: 1px solid var(--card-brd); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+  .dev-painel textarea { min-height: 96px; resize: vertical; }
+  .dev-painel .dev-acoes { display: flex; gap: 10px; align-items: center; }
+  .dev-resumo { flex: 1 1 100%; font-size: 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
   .contas-aviso { font-size: 12px; color: var(--muted); }
   .conta-grupo-titulo {
     font-size: 12px; font-weight: 600; color: var(--muted);
@@ -1100,22 +1108,54 @@ async function carregarDev() {
     if (!e.naoAutorizado) el.innerHTML = '<div class="empty">Não foi possível carregar a lista.</div>';
   }
 }
+const _devAbertos = new Set();
+function escapeAttr(str) { return escapeHtml(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+function linkSeguro(u) { return /^https?:\/\//i.test(u || "") ? u : ""; }
 function renderDev() {
   const el = document.getElementById("lista-dev");
   if (!_dev.length) { el.innerHTML = '<div class="empty">Nenhum chamado na lista</div>'; return; }
   const ordem = { "Aberto": 0, "Em andamento": 1, "Concluído": 2 };
   const lista = _dev.slice().sort((a, b) => (ordem[a.status] ?? 0) - (ordem[b.status] ?? 0));
   el.innerHTML = lista.map(c => {
-    const link = c.glpi_id ? `<a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${encodeURIComponent(c.glpi_id)}" target="_blank">#${escapeHtml(c.glpi_id)} ↗</a>` : "";
+    const link = c.glpi_id ? `<a class="glpi-link" href="${GLPI_BASE}/front/ticket.form.php?id=${encodeURIComponent(c.glpi_id)}" target="_blank" rel="noopener noreferrer">#${escapeHtml(c.glpi_id)} ↗</a>` : "";
     const sub = [c.cliente, c.obs, c.criado].filter(Boolean).map(escapeHtml).join(" · ");
     const opts = ["Aberto", "Em andamento", "Concluído"].map(s => `<option${s === c.status ? " selected" : ""}>${s}</option>`).join("");
+    const uid = escapeAttr(c.uid);
+    const pdf = linkSeguro(c.link);
+    const pdfLink = pdf ? `<a class="glpi-link dev-pdf" href="${escapeAttr(pdf)}" target="_blank" rel="noopener noreferrer">PDF ↗</a>` : "";
+    const aberto = _devAbertos.has(c.uid);
+    const resumo = c.analise && !aberto ? `<div class="dev-resumo">${escapeHtml(c.analise.length > 200 ? c.analise.slice(0, 200) + "…" : c.analise)}</div>` : "";
+    const painel = aberto ? `<div class="dev-painel">
+        <textarea id="dev-an-${uid}" maxlength="5000" placeholder="Análise, comentários, conclusões…" aria-label="Análise">${escapeHtml(c.analise || "")}</textarea>
+        <input id="dev-ln-${uid}" type="url" maxlength="500" placeholder="Link do PDF (Drive, OneDrive…)" aria-label="Link do PDF" value="${escapeAttr(c.link || "")}">
+        <div class="dev-acoes"><button class="dev-btn" onclick="salvarAnaliseDev('${uid}')">Salvar</button><span class="dev-sub" id="dev-am-${uid}"></span></div>
+      </div>` : "";
     return `<div class="dev-row ${c.status === "Concluído" ? "feito" : ""}">
       <div class="dev-tit">${escapeHtml(c.titulo)}<div class="dev-sub">${sub}</div></div>
-      ${link}
-      <select class="dev-sel" onchange="statusDev('${escapeHtml(c.uid)}', this.value)" aria-label="Status">${opts}</select>
-      <button class="dev-x" title="Remover" onclick="removerDev('${escapeHtml(c.uid)}')">✕</button>
+      ${link}${pdfLink}
+      <button class="dev-btn${c.analise || pdf ? " tem" : ""}" onclick="alternarAnaliseDev('${uid}')" aria-expanded="${aberto}">Análise</button>
+      <select class="dev-sel" onchange="statusDev('${uid}', this.value)" aria-label="Status">${opts}</select>
+      <button class="dev-x" title="Remover" onclick="removerDev('${uid}')">✕</button>
+      ${resumo}${painel}
     </div>`;
   }).join("");
+}
+function alternarAnaliseDev(uid) {
+  if (_devAbertos.has(uid)) _devAbertos.delete(uid); else _devAbertos.add(uid);
+  renderDev();
+}
+async function salvarAnaliseDev(uid) {
+  const msg = document.getElementById("dev-am-" + uid);
+  const analise = document.getElementById("dev-an-" + uid).value;
+  const link = document.getElementById("dev-ln-" + uid).value.trim();
+  msg.textContent = "Salvando...";
+  try {
+    const r = await apiDev("/api/dev-felipe/" + encodeURIComponent(uid), "PATCH", { analise, link });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { msg.textContent = d.error || "Erro ao salvar"; return; }
+    _devAbertos.delete(uid);
+    carregarDev();
+  } catch (e) { if (!e.naoAutorizado) msg.textContent = "Erro ao salvar"; }
 }
 async function adicionarDev(ev) {
   ev.preventDefault();
